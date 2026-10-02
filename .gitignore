@@ -1,0 +1,11 @@
+# Binario compilado (go build -o facturae-signer)
+/facturae-signer
+*.test
+*.out
+coverage.*
+cover.out
+
+# Material criptográfico local: NUNCA se versiona
+/dev/
+
+.DS_Store
