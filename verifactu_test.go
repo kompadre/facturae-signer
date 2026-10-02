@@ -89,11 +89,11 @@ func TestVeriImporte(t *testing.T) {
 func sampleRecord() *verifactuRecord {
 	return &verifactuRecord{
 		Kind:         "alta",
-		EmisorNIF:    "B55566677",
+		EmisorNIF:    "B19995869",
 		EmisorNombre: "Empresa de Pruebas S.L.",
 		Numero:       "2026-0007",
 		Fecha:        "2026-10-01",
-		Destinatario: verifactuDestinatario{Nombre: "Bla Prueba", NIF: "A11122233"},
+		Destinatario: verifactuDestinatario{Nombre: "Bla Prueba", NIF: "B37252301"},
 		Detalles: []verifactuDetalle{
 			{TipoImpositivo: "21.00", Base: "100.00", Cuota: "21.00"},
 		},
@@ -182,7 +182,7 @@ func TestBuildVerifactuAltaChained(t *testing.T) {
 	rec := sampleRecord()
 	rec.Previous = &verifactuPrevious{
 		Huella:    "3C464DAF61ACB827C65FDA19F352A4E3BDC2C640E9E9FC4CC058073F38F12F60",
-		EmisorNIF: "B55566677",
+		EmisorNIF: "B19995869",
 		Numero:    "2026-0006",
 		FechaEs:   "30-09-2026",
 	}
@@ -208,7 +208,7 @@ func TestBuildVerifactuAltaChained(t *testing.T) {
 func TestBuildVerifactuAnulacionStructure(t *testing.T) {
 	rec := &verifactuRecord{
 		Kind:         "anulacion",
-		EmisorNIF:    "B55566677",
+		EmisorNIF:    "B19995869",
 		EmisorNombre: "Empresa de Pruebas S.L.",
 		Numero:       "2026-0007",
 		Fecha:        "2026-10-01",
@@ -222,7 +222,7 @@ func TestBuildVerifactuAnulacionStructure(t *testing.T) {
 		t.Error("falta RegistroAnulacion con su namespace")
 	}
 	for _, want := range []string{
-		"<IDEmisorFacturaAnulada>B55566677</IDEmisorFacturaAnulada>",
+		"<IDEmisorFacturaAnulada>B19995869</IDEmisorFacturaAnulada>",
 		"<NumSerieFacturaAnulada>2026-0007</NumSerieFacturaAnulada>",
 		"<FechaExpedicionFacturaAnulada>01-10-2026</FechaExpedicionFacturaAnulada>",
 	} {
@@ -260,14 +260,14 @@ func TestBuildVerifactuValidation(t *testing.T) {
 // --- Consulta ---
 
 func TestBuildVerifactuConsulta(t *testing.T) {
-	inner, err := buildVerifactuConsulta("B55566677", "Empresa de Pruebas", "2026-10-01", "2026-0007")
+	inner, err := buildVerifactuConsulta("B19995869", "Empresa de Pruebas", "2026-10-01", "2026-0007")
 	if err != nil {
 		t.Fatalf("consulta: %v", err)
 	}
 	for _, want := range []string{
 		`xmlns="` + vfConsultaNS + `"`,
 		"<sf:IDVersion>1.0</sf:IDVersion>",
-		"<sf:NIF>B55566677</sf:NIF>",
+		"<sf:NIF>B19995869</sf:NIF>",
 		"<sf:Ejercicio>2026</sf:Ejercicio>",
 		"<sf:Periodo>10</sf:Periodo>",
 		"<NumSerieFactura>2026-0007</NumSerieFactura>",
@@ -314,12 +314,12 @@ const fixtureRespuestaCorrecta = `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
  <soapenv:Body>
   <RespuestaRegFactuSistemaFacturacion xmlns="https://www2.agenciatributaria.gob.es/static_files/common/internet/dep/aplicaciones/es/aeat/tike/cont/ws/RespuestaSuministro.xsd">
-   <Cabecera><ObligadoEmision><NombreRazonSocial>X</NombreRazonSocial><NIF>B55566677</NIF></ObligadoEmision></Cabecera>
+   <Cabecera><ObligadoEmision><NombreRazonSocial>X</NombreRazonSocial><NIF>B19995869</NIF></ObligadoEmision></Cabecera>
    <CSV>CSV-ABC123</CSV>
-   <DatosPresentacion><NIFPresentador>B55566677</NIFPresentador><TimestampPresentacion>2026-10-01T12:00:00</TimestampPresentacion></DatosPresentacion>
+   <DatosPresentacion><NIFPresentador>B19995869</NIFPresentador><TimestampPresentacion>2026-10-01T12:00:00</TimestampPresentacion></DatosPresentacion>
    <EstadoEnvio>Correcto</EstadoEnvio>
    <RespuestaLinea>
-    <IDFactura><IDEmisorFactura>B55566677</IDEmisorFactura><NumSerieFactura>2026-0007</NumSerieFactura><FechaExpedicionFactura>01-10-2026</FechaExpedicionFactura></IDFactura>
+    <IDFactura><IDEmisorFactura>B19995869</IDEmisorFactura><NumSerieFactura>2026-0007</NumSerieFactura><FechaExpedicionFactura>01-10-2026</FechaExpedicionFactura></IDFactura>
     <Operacion><TipoOperacion>Alta</TipoOperacion><Subsanacion>N</Subsanacion><RechazoPrevio>N</RechazoPrevio></Operacion>
     <EstadoRegistro>Correcto</EstadoRegistro>
    </RespuestaLinea>
@@ -351,7 +351,7 @@ const fixtureConsulta = `<?xml version="1.0" encoding="UTF-8"?>
   <RespuestaConsultaFactuSistemaFacturacion xmlns="x">
    <ResultadoConsulta>Conforme</ResultadoConsulta>
    <RegistroRespuestaConsultaFactuSistemaFacturacion>
-    <IDFactura><IDEmisorFactura>B55566677</IDEmisorFactura><NumSerieFactura>2026-0007</NumSerieFactura><FechaExpedicionFactura>01-10-2026</FechaExpedicionFactura></IDFactura>
+    <IDFactura><IDEmisorFactura>B19995869</IDEmisorFactura><NumSerieFactura>2026-0007</NumSerieFactura><FechaExpedicionFactura>01-10-2026</FechaExpedicionFactura></IDFactura>
     <EstadoRegistro><TimestampUltimaModificacion>2026-10-01T12:00:02</TimestampUltimaModificacion><EstadoRegistro>Correcto</EstadoRegistro></EstadoRegistro>
    </RegistroRespuestaConsultaFactuSistemaFacturacion>
   </RespuestaConsultaFactuSistemaFacturacion>
@@ -376,7 +376,7 @@ func TestParseAltaResponse(t *testing.T) {
 	if ln.Operacion.TipoOperacion != "Alta" {
 		t.Errorf("operacion = %+v", ln.Operacion)
 	}
-	if r.DatosPresentacion.NIFPresentador != "B55566677" {
+	if r.DatosPresentacion.NIFPresentador != "B19995869" {
 		t.Errorf("presentacion = %+v", r.DatosPresentacion)
 	}
 }
@@ -668,7 +668,7 @@ func TestVerifactuConsultaHandler(t *testing.T) {
 
 	payload, _ := json.Marshal(verifactuConsultaRequest{
 		Certificate: base64.StdEncoding.EncodeToString(blob),
-		NIF:         "B55566677",
+		NIF:         "B19995869",
 		Nombre:      "Empresa de Pruebas",
 		Fecha:       "2026-10-01",
 		Numero:      "2026-0007",
@@ -713,7 +713,7 @@ const fixtureRespuestaIncorrectoConTasa = `<?xml version="1.0" encoding="UTF-8"?
    <TiempoEsperaEnvio>60</TiempoEsperaEnvio>
    <EstadoEnvio>Incorrecto</EstadoEnvio>
    <RespuestaLinea>
-    <IDFactura><IDEmisorFactura>B55566677</IDEmisorFactura><NumSerieFactura>2026-0003</NumSerieFactura><FechaExpedicionFactura>30-09-2026</FechaExpedicionFactura></IDFactura>
+    <IDFactura><IDEmisorFactura>B19995869</IDEmisorFactura><NumSerieFactura>2026-0003</NumSerieFactura><FechaExpedicionFactura>30-09-2026</FechaExpedicionFactura></IDFactura>
     <EstadoRegistro>Incorrecto</EstadoRegistro>
     <CodigoErrorRegistro>1239</CodigoErrorRegistro>
     <DescripcionErrorRegistro>Error en el bloque Destinatario.</DescripcionErrorRegistro>

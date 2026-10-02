@@ -17,7 +17,7 @@ const sampleInvoiceXML = `<?xml version="1.0" encoding="UTF-8"?>
       <TaxIdentification>
         <PersonTypeCode>J</PersonTypeCode>
         <ResidenceTypeCode>R</ResidenceTypeCode>
-        <TaxIdentificationNumber>B87654321</TaxIdentificationNumber>
+        <TaxIdentificationNumber>B19995869</TaxIdentificationNumber>
       </TaxIdentification>
       <LegalEntity>
         <CorporateName>Emisor Soluciones S.L.</CorporateName>
@@ -31,7 +31,7 @@ const sampleInvoiceXML = `<?xml version="1.0" encoding="UTF-8"?>
       <TaxIdentification>
         <PersonTypeCode>F</PersonTypeCode>
         <ResidenceTypeCode>R</ResidenceTypeCode>
-        <TaxIdentificationNumber>A11122233</TaxIdentificationNumber>
+        <TaxIdentificationNumber>B37252301</TaxIdentificationNumber>
       </TaxIdentification>
       <AdministrativeCentres>
         <AdministrativeCentre>
@@ -152,10 +152,10 @@ func TestParseInvoicePDFModel(t *testing.T) {
 	if m.Number != "2026-0007" {
 		t.Errorf("Number = %q", m.Number)
 	}
-	if m.Seller.NIF != "B87654321" || m.Seller.Name != "Emisor Soluciones S.L." {
+	if m.Seller.NIF != "B19995869" || m.Seller.Name != "Emisor Soluciones S.L." {
 		t.Errorf("Seller = %+v", m.Seller)
 	}
-	if m.Buyer.NIF != "A11122233" || m.Buyer.Name != "Bla Prueba" {
+	if m.Buyer.NIF != "B37252301" || m.Buyer.Name != "Bla Prueba" {
 		t.Errorf("Buyer = %+v", m.Buyer)
 	}
 	if len(m.Centres) != 2 {
