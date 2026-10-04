@@ -72,7 +72,7 @@ func run(o options) error {
 	if err != nil {
 		return err
 	}
-	docBytes := decodeMaybeBase64(docRaw)
+	docBytes := docInputBytes(docRaw)
 
 	var doc map[string]any
 	if err := cbor.Unmarshal(docBytes, &doc); err != nil {
@@ -319,6 +319,23 @@ func verifyWithKey(pub any, hash crypto.Hash, payload, sig []byte) bool {
 	default:
 		return false
 	}
+}
+
+// docInputBytes acepta: CBOR crudo, base64 crudo, o el wrapper JSON que
+// devuelve el endpoint {"attestation_doc": "<b64>"}.
+func docInputBytes(raw []byte) []byte {
+	trim := strings.TrimSpace(string(raw))
+	if strings.HasPrefix(trim, "{") {
+		var w struct {
+			Doc string `json:"attestation_doc"`
+		}
+		if err := json.Unmarshal([]byte(trim), &w); err == nil && w.Doc != "" {
+			if b, err := base64.StdEncoding.DecodeString(w.Doc); err == nil {
+				return b
+			}
+		}
+	}
+	return decodeMaybeBase64(raw)
 }
 
 // decodeNonce: "b64:…" | "b64url:…" | crudo (misma regla que el signer).

@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -220,6 +221,22 @@ func TestVerifyDebugZeroPCRs(t *testing.T) {
 		t.Fatalf("nitro-debug con ceros: %v", err)
 	}
 
+}
+
+func TestVerifyAcceptsJSONWrapper(t *testing.T) {
+	signKey, signCertDER := newSigningIdentity(t)
+	_, transportPub := spkiPEMFile(t)
+	pcr0 := make([]byte, 32)
+	pcr2 := make([]byte, 32)
+	doc := buildTestDoc(t, pcr0, pcr2, transportPub, nil, signKey, signCertDER)
+	wrapper := fmt.Sprintf(`{"attestation_doc":"%s"}`, base64.StdEncoding.EncodeToString(doc))
+	docFile := writeTemp(t, "doc.json", wrapper)
+	meas := writeMeasurements(t, map[string]string{
+		"mode": "nitro", "pcr0": hex.EncodeToString(pcr0), "pcr2": hex.EncodeToString(pcr2),
+	})
+	if err := run(options{doc: docFile, measurements: meas}); err != nil {
+		t.Fatalf("wrapper JSON: %v", err)
+	}
 }
 
 func TestVerifyRejectsNonCBOR(t *testing.T) {

@@ -1,9 +1,9 @@
 #!/usr/bin/env sh
 # measurements REALES de un .eif — SÓLO host EC2 con nitro-cli.
 #   hack/measure.sh dist/signer.eif
-# Arranca el enclave en --debug-mode (PCR0/PCR2 a cero en el doc NSM de
-# debug), extrae los PCRs del EIF con describe-enclaves y escribe
-# measurements.json (mode=nitro) + termina el enclave de medida.
+# Arranca un enclave SIN --debug-mode (en debug los PCRs del NSM salen a
+# cero y describe no sirve), extrae los PCRs con describe-enclaves, escribe
+# measurements.json (mode=nitro) y termina el enclave de medida.
 set -eu
 eif="${1:-dist/signer.eif}"
 [ -f "$eif" ] || { echo "✗ no existe $eif" >&2; exit 1; }
@@ -11,7 +11,7 @@ command -v nitro-cli >/dev/null 2>&1 || { echo "✗ nitro-cli no disponible" >&2
 
 name="wpfe-measure-$$"
 nitro-cli run-enclave --eif-file "$eif" --cpu-count 2 --memory 256 \
-	--enclave-id "$name" --debug-mode >/dev/null
+	--enclave-id "$name" >/dev/null
 sleep 2
 json=$(nitro-cli describe-enclaves --enclave-id "$name")
 nitro-cli terminate-enclave --enclave-id "$name" >/dev/null || true

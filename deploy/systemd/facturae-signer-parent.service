@@ -1,0 +1,26 @@
+[Unit]
+Description=WPFacturaE signer parent (puente host <-> Nitro Enclave, sin secretos)
+Documentation=file:///usr/local/share/doc/facturae-signer/README-enclave.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# El parent NO maneja claves ni certificados: sólo retransmite bytes entre
+# WordPress y el enclave (vsock) y relaea la salida hacia la whitelist.
+EnvironmentFile=/etc/facturae-signer/enclave.env
+ExecStart=/usr/local/bin/facturae-signer-parent
+Restart=always
+RestartSec=2
+
+# endurecimiento mínimo (no necesita disco ni red saliente propia)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# Necesita /dev/vsock (y aceptar/rechazar según la distro: -- BindPaths).
+DeviceAllow=/dev/vsock rw
+ReadWritePaths=
+
+[Install]
+WantedBy=multi-user.target
