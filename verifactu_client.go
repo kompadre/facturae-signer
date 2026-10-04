@@ -63,6 +63,13 @@ func newVerifactuClient(bundle *keyBundle, extraRoots []*x509.Certificate, timeo
 
 	return &http.Client{
 		Timeout: timeout,
+		// Un endpoint SOAP nunca redirige con legitimidad: la AEAT devuelve
+		// 302 a su página de errores (p. ej. erro4033 "sin certificado
+		// electrónico") cuando algo falla antes del SOAP; seguirla solo
+		// convierte un diagnóstico claro en HTML incomprensible.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
 				Certificates: []tls.Certificate{cert},
@@ -100,6 +107,9 @@ func postVerifactuSOAP(client *http.Client, endpoint, inner string) ([]byte, err
 		return nil, fmt.Errorf("lectura de respuesta: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		if loc := resp.Header.Get("Location"); resp.StatusCode >= 300 && resp.StatusCode < 400 && loc != "" {
+			return nil, fmt.Errorf("la AEAT devolvió HTTP %d (redirige a %s)", resp.StatusCode, loc)
+		}
 		return nil, fmt.Errorf("la AEAT devolvió HTTP %d: %s", resp.StatusCode, snippet(body))
 	}
 	return body, nil

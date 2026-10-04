@@ -750,3 +750,42 @@ func TestMapAltaResponseVerdictWithRateLimitIsFinal(t *testing.T) {
 		t.Errorf("linea = %+v", r.Lineas[0])
 	}
 }
+
+// Regresión: la AEAT devuelve 302 a su página de errores (p. ej. erro4033,
+// "sin certificado electrónico") cuando falla antes del SOAP. El cliente no
+// debe seguir la redirección (HTML incomprensible como cuerpo) y el error
+// debe mencionar el destino para poder diagnosticar.
+func TestPostVerifactuSOAPRejectsRedirect(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://sede.agenciatributaria.gob.es/Sede/errores/erro4033.html", http.StatusFound)
+	}))
+	defer srv.Close()
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("clave: %v", err)
+	}
+	material, err := mkKeyBundlePEM(t, key, mkSelfSignedCert(t, key))
+	if err != nil {
+		t.Fatalf("bundle: %v", err)
+	}
+	bundle, err := parseKeyBundle(material)
+	if err != nil {
+		t.Fatalf("parseKeyBundle: %v", err)
+	}
+	client, err := newVerifactuClient(bundle, nil, 5*time.Second)
+	if err != nil {
+		t.Fatalf("newVerifactuClient: %v", err)
+	}
+
+	_, err = postVerifactuSOAP(client, srv.URL, "<x/>")
+	if err == nil {
+		t.Fatal("se esperaba error con la redirección")
+	}
+	if !strings.Contains(err.Error(), "HTTP 302") || !strings.Contains(err.Error(), "redirige a") {
+		t.Errorf("mensaje sin diagnóstico de redirección: %v", err)
+	}
+	if strings.Contains(err.Error(), "<meta>") {
+		t.Errorf("no debe parsear el HTML de la página de error: %v", err)
+	}
+}
