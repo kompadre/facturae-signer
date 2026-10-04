@@ -1,0 +1,15 @@
+# Variante de ENCLAVE para nitro-cli build-enclave (parte de la imagen
+# medida por PCR0, junto al kernel del enclave):
+#   - clave de transporte GENERADA en memoria (la privada no existe en el
+#     disco de la imagen ni sale de la RAM del enclave);
+#   - escucha por vsock (el parent hace de puente hacia WP);
+#   - salida a AEAT vía relay CONNECT del parent (auto cid 3:9001).
+#
+# Requiere que exista la imagen base: make image && make image-enclave.
+FROM facturae-signer:local
+
+ENV WPFE_KEY_MODE=generate \
+    LISTEN=vsock:9000
+
+# Si en el e2e de EC2 /dev/vsock o /dev/nsm deniegan EPERM a `nobody`,
+# cambiar aquí a USER root (el enclave no expone nada más allá de su vsock).

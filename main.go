@@ -12,13 +12,13 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 const (
-	listenAddr = ":8080"
-	dsigNS     = "http://www.w3.org/2000/09/xmldsig#"
-	maxBody    = 10 << 20
+	dsigNS  = "http://www.w3.org/2000/09/xmldsig#"
+	maxBody = 10 << 20
 )
 
 type signRequest struct {
@@ -146,7 +146,7 @@ func signHandler(w http.ResponseWriter, r *http.Request) {
 
 	material, err := decryptWPFE1(certBytes, activeConfig.privateKey)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: wpfeDecryptError(err).Error()})
 		return
 	}
 
@@ -431,7 +431,7 @@ func verifactuClientFor(w http.ResponseWriter, certB64 string) (*http.Client, bo
 	}
 	material, err := decryptWPFE1(certBytes, activeConfig.privateKey)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: wpfeDecryptError(err).Error()})
 		return nil, false
 	}
 	bundle, err := parseKeyBundle(material)
@@ -473,6 +473,8 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/verifactu/alta", requireMethod(http.MethodPost, verifactuAltaHandler))
 	mux.HandleFunc("/verifactu/consulta", requireMethod(http.MethodPost, verifactuConsultaHandler))
 	mux.HandleFunc("/health", requireMethod(http.MethodGet, healthHandler))
+	mux.HandleFunc("/v1/transport-key", requireMethod(http.MethodGet, transportKeyHandler))
+	mux.HandleFunc("/v1/attestation", requireMethod(http.MethodGet, attestationHandler))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, errorResponse{Error: "ruta no encontrada"})
 	})
@@ -499,16 +501,50 @@ func logging(next http.Handler) http.Handler {
 }
 
 func main() {
-	cfg, err := loadConfigFromEnv()
+	cfg, err := loadSignerConfig()
 	if err != nil {
 		log.Printf("AVISO: firma deshabilitada: %v", err)
 	} else {
 		activeConfig = cfg
-		log.Printf("firma habilitada (bundle PEM por petición; sin contraseña de PKCS#12)")
+		if cfg.generated {
+			log.Printf("firma habilitada (clave de transporte GENERADA en memoria; pública en /v1/transport-key)")
+		} else {
+			log.Printf("firma habilitada (bundle PEM por petición; sin contraseña de PKCS#12)")
+		}
+	}
+
+	// Attestation: NSM real si existe /dev/nsm; sin él, los endpoints de
+	// /v1/* responden 501 (modo docker).
+	if prov, err := openNSMDevice(os.Getenv("NSM_DEVICE")); err == nil {
+		attestationProv = prov
+		log.Printf("NSM disponible: attestation habilitado")
+	} else {
+		log.Printf("AVISO: %v (attestation deshabilitado)", err)
+	}
+
+	spec, err := parseListen(os.Getenv("LISTEN"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	relaySpec := os.Getenv("VSOCK_OUTBOUND")
+	if spec.network == "vsock" && strings.TrimSpace(relaySpec) == "" {
+		relaySpec = "3:9001" // CID del parent por defecto
+	}
+	relay, err := parseRelay(relaySpec)
+	if err != nil {
+		log.Fatal(err)
+	}
+	outboundRelay = relay
+	if relay != nil {
+		log.Printf("salida a AEAT vía relay vsock cid=%d puerto=%d", relay.cid, relay.port)
+	}
+
+	ln, err := serveListener(spec)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	srv := &http.Server{
-		Addr:              listenAddr,
 		Handler:           logging(newMux()),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -516,6 +552,6 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	log.Printf("facturae-signer escuchando en %s", listenAddr)
-	log.Fatal(srv.ListenAndServe())
+	log.Printf("facturae-signer escuchando en %s:%s (v=%s)", spec.network, spec.addr, version)
+	log.Fatal(srv.Serve(ln))
 }

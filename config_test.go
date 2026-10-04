@@ -29,9 +29,9 @@ func TestLoadConfigInlinePEM(t *testing.T) {
 
 	t.Setenv("WPFE_PRIVATE_KEY", string(pemBytes))
 
-	cfg, err := loadConfigFromEnv()
+	cfg, err := loadSignerConfig()
 	if err != nil {
-		t.Fatalf("loadConfigFromEnv: %v", err)
+		t.Fatalf("loadSignerConfig: %v", err)
 	}
 	if cfg.privateKey.N.Cmp(key.N) != 0 {
 		t.Error("la clave cargada no coincide con la generada")
@@ -51,9 +51,9 @@ func TestLoadConfigFromFilePath(t *testing.T) {
 
 	t.Setenv("WPFE_PRIVATE_KEY", path)
 
-	cfg, err := loadConfigFromEnv()
+	cfg, err := loadSignerConfig()
 	if err != nil {
-		t.Fatalf("loadConfigFromEnv: %v", err)
+		t.Fatalf("loadSignerConfig: %v", err)
 	}
 	if cfg.privateKey.N.Cmp(key.N) != 0 {
 		t.Error("la clave cargada no coincide con la del fichero")
@@ -62,7 +62,7 @@ func TestLoadConfigFromFilePath(t *testing.T) {
 
 func TestLoadConfigMissingEnv(t *testing.T) {
 	t.Setenv("WPFE_PRIVATE_KEY", "")
-	if _, err := loadConfigFromEnv(); err == nil {
+	if _, err := loadSignerConfig(); err == nil {
 		t.Fatal("se esperaba error sin WPFE_PRIVATE_KEY")
 	}
 }
@@ -75,9 +75,9 @@ func TestLoadConfigIgnoresLegacyPasswordEnv(t *testing.T) {
 	t.Setenv("PKCS12_PASSWORD", "secreta")
 	t.Setenv("PKCS12_PASSWORD_FILE", "/no/existe")
 
-	cfg, err := loadConfigFromEnv()
+	cfg, err := loadSignerConfig()
 	if err != nil {
-		t.Fatalf("loadConfigFromEnv: %v", err)
+		t.Fatalf("loadSignerConfig: %v", err)
 	}
 	if cfg.privateKey == nil {
 		t.Fatal("privateKey = nil")
@@ -89,7 +89,7 @@ func TestLoadConfigIgnoresLegacyPasswordEnv(t *testing.T) {
 
 func TestLoadConfigRejectsGarbage(t *testing.T) {
 	t.Setenv("WPFE_PRIVATE_KEY", "esto no es un PEM")
-	if _, err := loadConfigFromEnv(); err == nil {
+	if _, err := loadSignerConfig(); err == nil {
 		t.Fatal("se esperaba error con contenido basura")
 	}
 }
@@ -98,7 +98,7 @@ func TestLoadConfigRejectsNonRSAKey(t *testing.T) {
 	ecKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	t.Setenv("WPFE_PRIVATE_KEY", string(pemPKCS8(t, ecKey)))
 
-	_, err := loadConfigFromEnv()
+	_, err := loadSignerConfig()
 	if err == nil || !strings.Contains(err.Error(), "RSA") {
 		t.Errorf("se esperaba error de clave no-RSA, se obtuvo %v", err)
 	}
@@ -118,5 +118,72 @@ func TestParseRSAPrivateKeyPEMRejectsEncryptedBlock(t *testing.T) {
 	data := pem.EncodeToMemory(block)
 	if _, err := parseRSAPrivateKeyPEM(data); err == nil {
 		t.Fatal("se esperaba rechazo de clave cifrada")
+	}
+}
+
+func TestLoadSignerConfigGenerateMode(t *testing.T) {
+	t.Setenv("WPFE_KEY_MODE", "generate")
+	t.Setenv("WPFE_PRIVATE_KEY", "") // no debe mirarse en este modo
+
+	cfg, err := loadSignerConfig()
+	if err != nil {
+		t.Fatalf("loadSignerConfig: %v", err)
+	}
+	if !cfg.generated || cfg.privateKey == nil {
+		t.Fatalf("generated = %v, key = %v", cfg.generated, cfg.privateKey == nil)
+	}
+	if !transportKeyGenerated {
+		t.Error("transportKeyGenerated debe ser true en modo generate")
+	}
+	t.Cleanup(func() { transportKeyGenerated = false })
+
+	// La SPKI pública es utilizable por WordPress (RSA PKIX).
+	pemStr, err := transportPublicKeyPEM(cfg.privateKey)
+	if err != nil {
+		t.Fatalf("transportPublicKeyPEM: %v", err)
+	}
+	block, _ := pem.Decode([]byte(pemStr))
+	if block == nil || block.Type != "PUBLIC KEY" {
+		t.Fatalf("SPKI PEM inválido: %q", pemStr[:20])
+	}
+	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		t.Fatalf("ParsePKIXPublicKey: %v", err)
+	}
+	if _, ok := parsed.(*rsa.PublicKey); !ok {
+		t.Fatal("la SPKI no es una clave RSA pública")
+	}
+	der, err := transportPublicKeyDER(cfg.privateKey)
+	if err != nil || len(der) == 0 {
+		t.Fatalf("transportPublicKeyDER: %v (%d)", err, len(der))
+	}
+	// El DER del attestation y el PEM servido deben ser el mismo material.
+	if string(block.Bytes) != string(der) {
+		t.Error("SPKI PEM y DER no coinciden")
+	}
+}
+
+func TestLoadSignerConfigUnknownMode(t *testing.T) {
+	t.Setenv("WPFE_KEY_MODE", "sgx")
+	if _, err := loadSignerConfig(); err == nil {
+		t.Fatal("se esperaba error con modo desconocido")
+	}
+}
+
+func TestLoadSignerConfigEnvModeClearsGeneratedFlag(t *testing.T) {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	pkcs1 := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	})
+	t.Setenv("WPFE_KEY_MODE", "env")
+	t.Setenv("WPFE_PRIVATE_KEY", string(pkcs1))
+
+	cfg, err := loadSignerConfig()
+	if err != nil {
+		t.Fatalf("loadSignerConfig: %v", err)
+	}
+	if cfg.generated || transportKeyGenerated {
+		t.Error("modo env no debe marcar generated")
 	}
 }

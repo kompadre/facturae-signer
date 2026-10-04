@@ -71,3 +71,17 @@ func decryptWPFE1(blob []byte, key *rsa.PrivateKey) ([]byte, error) {
 	}
 	return plain, nil
 }
+
+// wpfeDecryptError añade la pista de rotación cuando la clave de transporte
+// es la generada por el propio signer (modo generate): un reinicio del
+// enclave rota la clave y los blobs antiguos ya no se abren — solución:
+// volver a subir el certificado en Ajustes (la pública cambió).
+func wpfeDecryptError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if transportKeyGenerated {
+		return fmt.Errorf("%w — ¿rotación de la clave? Vuelve a subir el certificado en Ajustes", err)
+	}
+	return err
+}

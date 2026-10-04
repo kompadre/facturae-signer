@@ -61,6 +61,18 @@ func newVerifactuClient(bundle *keyBundle, extraRoots []*x509.Certificate, timeo
 		rootCAs.AddCert(ca)
 	}
 
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			RootCAs:      rootCAs,
+			MinVersion:   tls.VersionTLS12,
+		},
+	}
+	if outboundRelay != nil {
+		// Modo enclave: el enclave no tiene red propia; el parent relaya
+		// (whitelist de hosts) tras el handshake CONNECT por vsock.
+		tr.DialContext = outboundRelay.dialContext
+	}
 	return &http.Client{
 		Timeout: timeout,
 		// Un endpoint SOAP nunca redirige con legitimidad: la AEAT devuelve
@@ -70,13 +82,7 @@ func newVerifactuClient(bundle *keyBundle, extraRoots []*x509.Certificate, timeo
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				Certificates: []tls.Certificate{cert},
-				RootCAs:      rootCAs,
-				MinVersion:   tls.VersionTLS12,
-			},
-		},
+		Transport: tr,
 	}, nil
 }
 
