@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"math/big"
 	"strings"
@@ -14,7 +17,6 @@ import (
 
 	"github.com/beevik/etree"
 	"github.com/invopop/xmldsig"
-	"software.sslmate.com/src/go-pkcs12"
 )
 
 const sampleInvoice = `<?xml version="1.0" encoding="UTF-8"?>
@@ -83,27 +85,29 @@ const unprefixedInvoice = `<?xml version="1.0" encoding="UTF-8"?>
   </FileHeader>
 </Facturae>`
 
-// newTestCert genera un certificado autosignado + p12 y lo carga con la misma
-// ruta que usa el servicio en producción (LoadCertificateFromBytes).
-func newTestCert(t *testing.T, password string) (*xmldsig.Certificate, []byte) {
+// newTestCert genera un certificado autosignado y lo carga con la misma ruta
+// que usa el servicio en producción (bundle PEM -> parseKeyBundle).
+func newTestCert(t *testing.T) (*xmldsig.Certificate, []byte) {
 	t.Helper()
 
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("generar clave: %v", err)
 	}
-	p12, err := mkP12(t, key, password)
+	cert := mkSelfSignedCert(t, key)
+	bundle, err := mkKeyBundlePEM(t, key, cert)
 	if err != nil {
-		t.Fatalf("crear p12: %v", err)
+		t.Fatalf("crear bundle: %v", err)
 	}
-	cert, err := xmldsig.LoadCertificateFromBytes(p12, password)
+	parsed, err := parseKeyBundle(bundle)
 	if err != nil {
-		t.Fatalf("cargar p12: %v", err)
+		t.Fatalf("cargar bundle: %v", err)
 	}
-	return cert, p12
+	return parsed.signing, bundle
 }
 
-func mkP12(t *testing.T, key *rsa.PrivateKey, password string) ([]byte, error) {
+// mkSelfSignedCert crea un certificado autosignado de prueba.
+func mkSelfSignedCert(t *testing.T, key *rsa.PrivateKey) *x509.Certificate {
 	t.Helper()
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(time.Now().UnixNano()),
@@ -119,17 +123,34 @@ func mkP12(t *testing.T, key *rsa.PrivateKey, password string) ([]byte, error) {
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
-		return nil, err
+		t.Fatalf("crear cert: %v", err)
 	}
 	cert, err := x509.ParseCertificate(der)
 	if err != nil {
+		t.Fatalf("parse cert: %v", err)
+	}
+	return cert
+}
+
+// mkKeyBundlePEM construye el bundle PEM que genera el plugin al subir un
+// .p12: clave privada + certificado hoja + cadena emisora.
+func mkKeyBundlePEM(t *testing.T, key crypto.Signer, leaf *x509.Certificate, cas ...*x509.Certificate) ([]byte, error) {
+	t.Helper()
+	var buf bytes.Buffer
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
 		return nil, err
 	}
-	return pkcs12.Modern2023.Encode(key, cert, nil, password)
+	_ = pem.Encode(&buf, &pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
+	_ = pem.Encode(&buf, &pem.Block{Type: "CERTIFICATE", Bytes: leaf.Raw})
+	for _, ca := range cas {
+		_ = pem.Encode(&buf, &pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw})
+	}
+	return buf.Bytes(), nil
 }
 
 func TestSignXMLProducesVerifiableXAdES(t *testing.T) {
-	cert, _ := newTestCert(t, "test-pass")
+	cert, _ := newTestCert(t)
 
 	out, err := signXML(sampleInvoice, cert)
 	if err != nil {
@@ -143,7 +164,7 @@ func TestSignXMLProducesVerifiableXAdES(t *testing.T) {
 }
 
 func TestSignXMLWithFB2BNamespaces(t *testing.T) {
-	cert, _ := newTestCert(t, "test-pass")
+	cert, _ := newTestCert(t)
 
 	out, err := signXML(sampleInvoiceFB2B, cert)
 	if err != nil {
@@ -159,7 +180,7 @@ func TestSignXMLWithFB2BNamespaces(t *testing.T) {
 }
 
 func TestSignXMLUnprefixedRoot(t *testing.T) {
-	cert, _ := newTestCert(t, "test-pass")
+	cert, _ := newTestCert(t)
 
 	out, err := signXML(unprefixedInvoice, cert)
 	if err != nil {
@@ -175,7 +196,7 @@ func TestSignXMLUnprefixedRoot(t *testing.T) {
 }
 
 func TestSignXMLPreservesOriginalBytes(t *testing.T) {
-	cert, _ := newTestCert(t, "test-pass")
+	cert, _ := newTestCert(t)
 
 	out, err := signXML(sampleInvoice, cert)
 	if err != nil {
@@ -197,7 +218,7 @@ func TestSignXMLPreservesOriginalBytes(t *testing.T) {
 }
 
 func TestSignXMLRejectsMalformedInput(t *testing.T) {
-	cert, _ := newTestCert(t, "test-pass")
+	cert, _ := newTestCert(t)
 	for _, in := range []string{"", "   ", "<not-closed", "<a></b>"} {
 		_, err := signXML(in, cert)
 		if err == nil {
@@ -212,7 +233,7 @@ func TestSignXMLRejectsMalformedInput(t *testing.T) {
 }
 
 func TestSignXMLRejectsAlreadySigned(t *testing.T) {
-	cert, _ := newTestCert(t, "test-pass")
+	cert, _ := newTestCert(t)
 	out, err := signXML(sampleInvoice, cert)
 	if err != nil {
 		t.Fatalf("signXML: %v", err)
@@ -224,7 +245,7 @@ func TestSignXMLRejectsAlreadySigned(t *testing.T) {
 }
 
 func TestSignXMLRejectsEpilogContent(t *testing.T) {
-	cert, _ := newTestCert(t, "test-pass")
+	cert, _ := newTestCert(t)
 	in := unprefixedInvoice + "<!-- comentario epílogo -->\n"
 	if _, err := signXML(in, cert); err == nil {
 		t.Fatal("se esperaba rechazo de epílogo con contenido")
@@ -237,7 +258,7 @@ func TestSignXMLRejectsEpilogContent(t *testing.T) {
 }
 
 func TestVerifyDetectsTamperedDocument(t *testing.T) {
-	cert, _ := newTestCert(t, "test-pass")
+	cert, _ := newTestCert(t)
 	out, err := signXML(sampleInvoice, cert)
 	if err != nil {
 		t.Fatalf("signXML: %v", err)
@@ -509,9 +530,9 @@ func TestFormatIssuerDN(t *testing.T) {
 	}
 }
 
-// newChainedTestCert genera CA + hoja firmada por la CA en un p12 (como el
-// de un DNIe real, con cadena) y lo carga por la ruta de producción.
-func newChainedTestCert(t *testing.T, password string) *xmldsig.Certificate {
+// newChainedTestCert genera CA + hoja firmada por la CA en un bundle PEM (como
+// el de un DNIe real, con cadena) y lo carga por la ruta de producción.
+func newChainedTestCert(t *testing.T) *xmldsig.Certificate {
 	t.Helper()
 
 	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -556,24 +577,24 @@ func newChainedTestCert(t *testing.T, password string) *xmldsig.Certificate {
 		t.Fatalf("parse hoja: %v", err)
 	}
 
-	p12, err := pkcs12.Modern2023.Encode(leafKey, leafCert, []*x509.Certificate{caCert}, password)
+	bundle, err := mkKeyBundlePEM(t, leafKey, leafCert, caCert)
 	if err != nil {
-		t.Fatalf("p12: %v", err)
+		t.Fatalf("bundle: %v", err)
 	}
-	cert, err := xmldsig.LoadCertificateFromBytes(p12, password)
+	parsed, err := parseKeyBundle(bundle)
 	if err != nil {
-		t.Fatalf("cargar p12: %v", err)
+		t.Fatalf("cargar bundle: %v", err)
 	}
-	return cert
+	return parsed.signing
 }
 
 // Regresión: con cadena (DNIe real) los certs van en ELEMENTOS SEPARADOS;
 // concatenarlos en un solo X509Certificate rompe el base64 (padding) y la
 // autocomprobación fallaba con "no es base64 válido".
 func TestSignXMLWithCertificateChain(t *testing.T) {
-	cert := newChainedTestCert(t, "chain-pass")
+	cert := newChainedTestCert(t)
 	if len(cert.CaChain) == 0 {
-		t.Fatal("el p12 de prueba no tiene cadena (CaChain vacía)")
+		t.Fatal("el bundle de prueba no tiene cadena (CaChain vacía)")
 	}
 
 	out, err := signXML(sampleInvoice, cert)

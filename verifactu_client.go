@@ -10,8 +10,6 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"software.sslmate.com/src/go-pkcs12"
 )
 
 // verifactuEndpoint devuelve la URL del servicio VerifactuSOAP.
@@ -37,24 +35,21 @@ func verifactuEndpoint() string {
 	return "https://" + host + "/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP"
 }
 
-// newVerifactuClient construye el cliente HTTP mTLS a partir del contenedor
-// PKCS#12 (descifrado del blob WPFE1). extraRoots se añade al almacén del
+// newVerifactuClient construye el cliente HTTP mTLS a partir del bundle de
+// clave ya abierto (clave privada + certificado + cadena; el PKCS#12 se abre
+// en WordPress al subirlo, nunca aquí). extraRoots se añade al almacén del
 // sistema (para pruebas con CA propia).
-func newVerifactuClient(p12 []byte, password string, extraRoots []*x509.Certificate, timeout time.Duration) (*http.Client, error) {
-	key, leaf, caCerts, err := pkcs12.DecodeChain(p12, password)
-	if err != nil {
-		return nil, inputErrf("PKCS#12 ilegible o contraseña incorrecta: %v", err)
-	}
-	if leaf == nil {
-		return nil, inputErrf("el PKCS#12 no contiene certificado")
+func newVerifactuClient(bundle *keyBundle, extraRoots []*x509.Certificate, timeout time.Duration) (*http.Client, error) {
+	if bundle == nil || bundle.leaf == nil {
+		return nil, inputErrf("certificate: material de clave ausente")
 	}
 
 	cert := tls.Certificate{
-		Certificate: [][]byte{leaf.Raw},
-		PrivateKey:  key,
-		Leaf:        leaf,
+		Certificate: [][]byte{bundle.leaf.Raw},
+		PrivateKey:  bundle.key,
+		Leaf:        bundle.leaf,
 	}
-	for _, ca := range caCerts {
+	for _, ca := range bundle.cas {
 		cert.Certificate = append(cert.Certificate, ca.Raw)
 	}
 

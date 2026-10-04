@@ -16,12 +16,10 @@ import (
 //
 //	"-----BEGIN", o ruta de fichero) que descifra el blob WPFE1 de la petición.
 //
-// PKCS12_PASSWORD (literal, puede estar vacía) o PKCS12_PASSWORD_FILE (ruta al
-// fichero con la contraseña): contraseña del PKCS#12 que viaja cifrado en la
-// petición.
+// No hay ninguna contraseña de PKCS#12: el plugin abre el .p12 al subirlo y
+// envía clave+certificado ya extraídos (bundle PEM, cifrado con WPFE1).
 type signerConfig struct {
 	privateKey *rsa.PrivateKey
-	password   string
 }
 
 func loadConfigFromEnv() (*signerConfig, error) {
@@ -44,25 +42,9 @@ func loadConfigFromEnv() (*signerConfig, error) {
 		return nil, err
 	}
 
-	password, err := loadPassword()
-	if err != nil {
-		return nil, err
-	}
 	return &signerConfig{
 		privateKey: key,
-		password:   password,
 	}, nil
-}
-
-func loadPassword() (string, error) {
-	if path := os.Getenv("PKCS12_PASSWORD_FILE"); path != "" {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return "", fmt.Errorf("lectura de PKCS12_PASSWORD_FILE (%s): %w", path, err)
-		}
-		return strings.TrimRight(string(data), "\r\n"), nil
-	}
-	return os.Getenv("PKCS12_PASSWORD"), nil
 }
 
 func parseRSAPrivateKeyPEM(data []byte) (*rsa.PrivateKey, error) {

@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -27,14 +28,10 @@ func TestLoadConfigInlinePEM(t *testing.T) {
 	pemBytes := pemPKCS8(t, key)
 
 	t.Setenv("WPFE_PRIVATE_KEY", string(pemBytes))
-	t.Setenv("PKCS12_PASSWORD", "secreta")
 
 	cfg, err := loadConfigFromEnv()
 	if err != nil {
 		t.Fatalf("loadConfigFromEnv: %v", err)
-	}
-	if cfg.password != "secreta" {
-		t.Errorf("password = %q", cfg.password)
 	}
 	if cfg.privateKey.N.Cmp(key.N) != 0 {
 		t.Error("la clave cargada no coincide con la generada")
@@ -53,14 +50,10 @@ func TestLoadConfigFromFilePath(t *testing.T) {
 	}
 
 	t.Setenv("WPFE_PRIVATE_KEY", path)
-	t.Setenv("PKCS12_PASSWORD", "")
 
 	cfg, err := loadConfigFromEnv()
 	if err != nil {
 		t.Fatalf("loadConfigFromEnv: %v", err)
-	}
-	if cfg.password != "" {
-		t.Errorf("password = %q, se esperaba vacía", cfg.password)
 	}
 	if cfg.privateKey.N.Cmp(key.N) != 0 {
 		t.Error("la clave cargada no coincide con la del fichero")
@@ -74,24 +67,23 @@ func TestLoadConfigMissingEnv(t *testing.T) {
 	}
 }
 
-func TestLoadConfigPasswordFromFile(t *testing.T) {
+func TestLoadConfigIgnoresLegacyPasswordEnv(t *testing.T) {
+	// El signer ya no tiene ninguna contraseña de PKCS#12: aunque queden
+	// variables de entorno antigüas, la configuración no las recoge.
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	t.Setenv("WPFE_PRIVATE_KEY", string(pemPKCS8(t, key)))
-	t.Setenv("PKCS12_PASSWORD", "")
-	t.Setenv("PKCS12_PASSWORD_FILE", "")
-
-	pwPath := filepath.Join(t.TempDir(), "pw")
-	if err := os.WriteFile(pwPath, []byte("desde-fichero\n"), 0o600); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	t.Setenv("PKCS12_PASSWORD_FILE", pwPath)
+	t.Setenv("PKCS12_PASSWORD", "secreta")
+	t.Setenv("PKCS12_PASSWORD_FILE", "/no/existe")
 
 	cfg, err := loadConfigFromEnv()
 	if err != nil {
 		t.Fatalf("loadConfigFromEnv: %v", err)
 	}
-	if cfg.password != "desde-fichero" {
-		t.Errorf("password = %q, se esperaba \"desde-fichero\"", cfg.password)
+	if cfg.privateKey == nil {
+		t.Fatal("privateKey = nil")
+	}
+	if !reflect.DeepEqual(cfg, &signerConfig{privateKey: cfg.privateKey}) {
+		t.Errorf("config inesperada: %+v", cfg)
 	}
 }
 

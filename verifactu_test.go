@@ -19,8 +19,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"software.sslmate.com/src/go-pkcs12"
 )
 
 // --- Huella: vectores oficiales de AEAT (spec v0.1.2, ejemplos s6.1-s6.3) ---
@@ -513,19 +511,19 @@ func TestVerifactuAltaHandlerMTLS(t *testing.T) {
 
 	// Certificado de cliente en PKCS#12 + blob WPFE1 con clave del signer.
 	caCert, caKey := ca.leaf(t, "cliente@prueba", false)
-	p12, err := pkcs12.Encode(rand.Reader, caKey, caCert, []*x509.Certificate{ca.cert}, "secret")
+	material, err := mkKeyBundlePEM(t, caKey, caCert, ca.cert)
 	if err != nil {
-		t.Fatalf("pkcs12: %v", err)
+		t.Fatalf("bundle: %v", err)
 	}
 	wpfeKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("clave wpfe: %v", err)
 	}
 	oldConfig := activeConfig
-	activeConfig = &signerConfig{privateKey: wpfeKey, password: "secret"}
+	activeConfig = &signerConfig{privateKey: wpfeKey}
 	t.Cleanup(func() { activeConfig = oldConfig })
 
-	blob := encryptWPFE1(t, p12, &wpfeKey.PublicKey)
+	blob := encryptWPFE1(t, material, &wpfeKey.PublicKey)
 
 	// El cliente confía en la CA del servidor vía VERIFACTU_EXTRA_CA.
 	caPath := t.TempDir() + "/ca.pem"
@@ -591,7 +589,7 @@ func TestVerifactuAltaHandlerErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("clave: %v", err)
 	}
-	activeConfig = &signerConfig{privateKey: wpfeKey, password: "secret"}
+	activeConfig = &signerConfig{privateKey: wpfeKey}
 	t.Cleanup(func() { activeConfig = oldConfig })
 
 	srv := httptest.NewServer(newMux())
@@ -616,13 +614,13 @@ func TestVerifactuAltaHandlerErrors(t *testing.T) {
 		t.Errorf("b64: %d", code)
 	}
 	// Registro inválido (inputErrf) -> 400.
-	blob := encryptWPFE1(t, []byte("no-p12"), &wpfeKey.PublicKey)
+	blob := encryptWPFE1(t, []byte("no-bundle"), &wpfeKey.PublicKey)
 	payload, _ := json.Marshal(verifactuAltaRequest{
 		Certificate: base64.StdEncoding.EncodeToString(blob),
 		Record:      verifactuRecord{Kind: "otra"},
 	})
 	if code := post(string(payload)); code != http.StatusBadRequest {
-		t.Errorf("p12 inválido: %d", code)
+		t.Errorf("bundle inválido: %d", code)
 	}
 }
 
@@ -645,18 +643,18 @@ func TestVerifactuConsultaHandler(t *testing.T) {
 	defer srv.Close()
 
 	caCert, caKey := ca.leaf(t, "cliente@prueba", false)
-	p12, err := pkcs12.Encode(rand.Reader, caKey, caCert, []*x509.Certificate{ca.cert}, "secret")
+	material, err := mkKeyBundlePEM(t, caKey, caCert, ca.cert)
 	if err != nil {
-		t.Fatalf("pkcs12: %v", err)
+		t.Fatalf("bundle: %v", err)
 	}
 	wpfeKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("clave wpfe: %v", err)
 	}
 	oldConfig := activeConfig
-	activeConfig = &signerConfig{privateKey: wpfeKey, password: "secret"}
+	activeConfig = &signerConfig{privateKey: wpfeKey}
 	t.Cleanup(func() { activeConfig = oldConfig })
-	blob := encryptWPFE1(t, p12, &wpfeKey.PublicKey)
+	blob := encryptWPFE1(t, material, &wpfeKey.PublicKey)
 
 	caPath := t.TempDir() + "/ca.pem"
 	_ = os.WriteFile(caPath, ca.pem, 0o600)

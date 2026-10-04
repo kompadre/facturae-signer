@@ -13,8 +13,6 @@ import (
 	"os"
 	"strconv"
 	"time"
-
-	"github.com/invopop/xmldsig"
 )
 
 const (
@@ -143,19 +141,19 @@ func signHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p12, err := decryptWPFE1(certBytes, activeConfig.privateKey)
+	material, err := decryptWPFE1(certBytes, activeConfig.privateKey)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 		return
 	}
 
-	cert, err := xmldsig.LoadCertificateFromBytes(p12, activeConfig.password)
+	bundle, err := parseKeyBundle(material)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "certificate: PKCS#12 ilegible o contraseña incorrecta"})
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 		return
 	}
 
-	signed, err := signXML(string(xmlBytes), cert)
+	signed, err := signXML(string(xmlBytes), bundle.signing)
 	if err != nil {
 		var ie *inputError
 		var ve *verificationError
@@ -404,7 +402,7 @@ func loadExtraRoots() []*x509.Certificate {
 	return certs
 }
 
-// verifactuClientFor descifra el certificado WPFE1 y construye el cliente
+// verifactuClientFor descifra el bundle de clave WPFE1 y construye el cliente
 // mTLS. Escribe el error JSON y devuelve ok=false si falla.
 func verifactuClientFor(w http.ResponseWriter, certB64 string) (*http.Client, bool) {
 	if activeConfig == nil {
@@ -416,12 +414,17 @@ func verifactuClientFor(w http.ResponseWriter, certB64 string) (*http.Client, bo
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "certificate no es base64 válido"})
 		return nil, false
 	}
-	p12, err := decryptWPFE1(certBytes, activeConfig.privateKey)
+	material, err := decryptWPFE1(certBytes, activeConfig.privateKey)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 		return nil, false
 	}
-	client, err := newVerifactuClient(p12, activeConfig.password, loadExtraRoots(), 60*time.Second)
+	bundle, err := parseKeyBundle(material)
+	if err != nil {
+		writeVerifactuError(w, err)
+		return nil, false
+	}
+	client, err := newVerifactuClient(bundle, loadExtraRoots(), 60*time.Second)
 	if err != nil {
 		writeVerifactuError(w, err)
 		return nil, false
@@ -486,11 +489,7 @@ func main() {
 		log.Printf("AVISO: firma deshabilitada: %v", err)
 	} else {
 		activeConfig = cfg
-		if cfg.password == "" {
-			log.Printf("firma habilitada (PKCS12_PASSWORD vacía)")
-		} else {
-			log.Printf("firma habilitada (PKCS12_PASSWORD establecida)")
-		}
+		log.Printf("firma habilitada (bundle PEM por petición; sin contraseña de PKCS#12)")
 	}
 
 	srv := &http.Server{

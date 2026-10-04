@@ -12,10 +12,11 @@ import (
 )
 
 // testIdentity emula el escenario de producción: una clave de transporte K
-// (clave privada del servicio) y un PKCS#12 de firma con su contraseña.
+// (clave privada del servicio) y el bundle PEM de firma que el plugin envía
+// tras abrir el .p12 al subirlo (sin contraseña).
 type testIdentity struct {
-	cfg *signerConfig
-	p12 []byte
+	cfg      *signerConfig
+	material []byte
 }
 
 func newTestIdentity(t *testing.T) *testIdentity {
@@ -29,23 +30,23 @@ func newTestIdentity(t *testing.T) *testIdentity {
 	if err != nil {
 		t.Fatalf("clave de firma: %v", err)
 	}
-	p12, err := mkP12(t, signKey, "p12-pass")
+	material, err := mkKeyBundlePEM(t, signKey, mkSelfSignedCert(t, signKey))
 	if err != nil {
-		t.Fatalf("p12: %v", err)
+		t.Fatalf("bundle: %v", err)
 	}
 	return &testIdentity{
-		cfg: &signerConfig{privateKey: transport, password: "p12-pass"},
-		p12: p12,
+		cfg:      &signerConfig{privateKey: transport},
+		material: material,
 	}
 }
 
-func (id *testIdentity) requestBody(t *testing.T, xml string, p12Override []byte) string {
+func (id *testIdentity) requestBody(t *testing.T, xml string, materialOverride []byte) string {
 	t.Helper()
-	p12 := p12Override
-	if p12 == nil {
-		p12 = id.p12
+	material := materialOverride
+	if material == nil {
+		material = id.material
 	}
-	blob := encryptWPFE1(t, p12, &id.cfg.privateKey.PublicKey)
+	blob := encryptWPFE1(t, material, &id.cfg.privateKey.PublicKey)
 	payload, err := json.Marshal(map[string]string{
 		"xml":         base64.StdEncoding.EncodeToString([]byte(xml)),
 		"certificate": base64.StdEncoding.EncodeToString(blob),
@@ -142,7 +143,7 @@ func TestSignHandlerRejectsWrongTransportKey(t *testing.T) {
 	setActiveConfig(t, id.cfg)
 
 	other, _ := rsa.GenerateKey(rand.Reader, 2048)
-	blob := encryptWPFE1(t, id.p12, &other.PublicKey)
+	blob := encryptWPFE1(t, id.material, &other.PublicKey)
 	body, _ := json.Marshal(map[string]string{
 		"xml":         base64.StdEncoding.EncodeToString([]byte(sampleInvoice)),
 		"certificate": base64.StdEncoding.EncodeToString(blob),
@@ -156,16 +157,18 @@ func TestSignHandlerRejectsWrongTransportKey(t *testing.T) {
 	}
 }
 
-func TestSignHandlerRejectsWrongP12Password(t *testing.T) {
+func TestSignHandlerRejectsLegacyPKCS12Blob(t *testing.T) {
 	id := newTestIdentity(t)
-	id.cfg.password = "contraseña-equivocada"
 	setActiveConfig(t, id.cfg)
 
-	rec := postSign(t, id.requestBody(t, sampleInvoice, nil))
+	// Un PKCS#12 en bruto (subido con versiones antiguas del plugin, cuando
+	// la contraseña vivía en el entorno del signer) ya no es aceptado.
+	legacy := []byte{0x30, 0x82, 0x01, 0x07, 0x02, 0x01, 0x00, 0x30, 0x82, 0x01, 0x02}
+	rec := postSign(t, id.requestBody(t, sampleInvoice, legacy))
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "PKCS#12") {
+	if !strings.Contains(rec.Body.String(), "bundle PEM") {
 		t.Errorf("mensaje de error inesperado: %s", rec.Body.String())
 	}
 }
