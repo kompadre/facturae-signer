@@ -1,0 +1,29 @@
+{
+  "Version": "2012-10-17",
+  "Id": "wpfe-transport-seal",
+  "Statement": [
+    {
+      "Sid": "EnclaveMaySealTransportKey",
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::ACCOUNT:role/EnclaveSealRole" },
+      "Action": "kms:Encrypt",
+      "Resource": "*"
+    },
+    {
+      "Sid": "UnwrapOnlyForApprovedEnclaveImage",
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::ACCOUNT:role/HostUnwrapRole" },
+      "Action": [
+        "kms:Decrypt",
+        "kms:DeriveSharedSecret"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEqualsIgnoreCase": {
+          "kms:RecipientAttestation:ImageSha384": "PCR0_HEX_DEL_RELEASE_PUBLICADO",
+          "kms:RecipientAttestation:PCR2": "PCR2_HEX_DEL_RELEASE_PUBLICADO"
+        }
+      }
+    }
+  ]
+}

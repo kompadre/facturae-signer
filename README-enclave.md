@@ -95,6 +95,36 @@ fina sobre `make`): `ci`, `image`, `image-enclave`, `enclave` (EC2),
 imagen, `measurements.json` (real) por release. `.gitignore` excluye
 `dist/` y `measurements.json` (los reales se publican como artefacto).
 
+
+## S1 — sonda de contrato de sellado (KMS)
+
+Antes de implementar el sellado de la clave de transporte (S2 / arquitectura
+D′), la sonda confirma empíricamente en tu cuenta qué exige realmente KMS:
+
+```sh
+nitro-cli-config -i -m 512 -t 4        # una vez por host
+hack/kms-probe.sh --region <tu-region> [--keep]
+```
+
+Con una key desechable y dos enclaves reales (imagen buena + imagen
+atacante = imagen buena + capa ENV que cambia la medición) mide:
+
+| Pregunta | Esperado | Si sale distinto |
+|---|---|---|
+| P1 plain `Decrypt` sin `Recipient` | denegado | **BAIL**: sin sellado; modo efímero v1 |
+| P2 `Decrypt(Recipient=doc propio)` | `CiphertextForRecipient`, `Plaintext` vacío | revisar ortografía (P4) / permisos |
+| P3 `Recipient` con doc de imagen atacante | denegado | **INV-2 no existe** ⇒ arquitectura D (sealer off-host) |
+| P4 ortografía de condición + pin PCR2 | informa (`ImageSha384` documentada; `PCR0` = plantilla alternativa) | elegir la que acepte |
+
+Resultado esperado (documentado en AWS: *Condition keys for Nitro Enclaves* —
+«AWS KMS compares the attestation document to the values in these condition
+keys»): P1/P2/P3 = SÍ ⇒ **D′**: plantilla `deploy/kms-policy.json`
+(sustituir ACCOUNT, roles y los dos hex con `measurements.json` del
+release) + `WPFE_KEY_MODE=seal` en S2.
+
+La key de la sonda se borra con `schedule-key-deletion` (ventana mínima de
+7 días de KMS) al salir; `--keep` la conserva para iterar.
+
 ## Notas / pendientes
 
 - **Gramine** (mencionado como alternativa local): pivota a SGX, no a
