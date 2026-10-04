@@ -9,3 +9,8 @@ cover.out
 /dev/
 
 .DS_Store
+
+# Artefactos de build/CI (los measurements REALES se publican como
+# artefacto del release; el simulado jamás se versiona)
+/dist/
+/measurements.json

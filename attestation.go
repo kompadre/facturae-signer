@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"io"
 	"net/http"
+	"strings"
 )
 
 // version se inyecta en build con -ldflags "-X main.version=…"; forma parte
@@ -68,18 +69,23 @@ func attestationHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// decodeNonce acepta base64 (std o url, con/sin padding) o bytes crudos.
+// decodeNonce: "b64:<std>" | "b64url:<url>" | bytes crudos. Los prefijos
+// evitan la ambigüedad (un nonce crudo que "parece" base64).
 func decodeNonce(s string) []byte {
 	if s == "" {
 		return nil
 	}
-	for _, enc := range []*base64.Encoding{
-		base64.StdEncoding, base64.URLEncoding,
-		base64.RawStdEncoding, base64.RawURLEncoding,
-	} {
-		if b, err := enc.DecodeString(s); err == nil {
+	if rest, ok := strings.CutPrefix(s, "b64:"); ok {
+		if b, err := base64.StdEncoding.DecodeString(rest); err == nil {
 			return b
 		}
+		return []byte(s)
+	}
+	if rest, ok := strings.CutPrefix(s, "b64url:"); ok {
+		if b, err := base64.RawURLEncoding.DecodeString(rest); err == nil {
+			return b
+		}
+		return []byte(s)
 	}
 	return []byte(s)
 }

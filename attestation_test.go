@@ -176,7 +176,7 @@ func TestAttestationHandlerBindsActivePublicKey(t *testing.T) {
 	t.Cleanup(func() { attestationProv = nil })
 
 	nonceRaw := []byte("nonce-fresco-123")
-	nonceB64 := base64.StdEncoding.EncodeToString(nonceRaw)
+	nonceB64 := "b64:" + base64.StdEncoding.EncodeToString(nonceRaw)
 
 	rec := httptest.NewRecorder()
 	attestationHandler(rec, httptest.NewRequest(http.MethodGet, "/v1/attestation?nonce="+nonceB64, nil))
@@ -215,7 +215,7 @@ func TestAttestationHandlerModes(t *testing.T) {
 	// Nonce demasiado largo -> 400
 	attestationProv = &stubAttestation{doc: []byte("d")}
 	t.Cleanup(func() { attestationProv = nil })
-	long := base64.StdEncoding.EncodeToString(make([]byte, 513))
+	long := "b64:" + base64.StdEncoding.EncodeToString(make([]byte, 513))
 	rec = httptest.NewRecorder()
 	attestationHandler(rec, httptest.NewRequest(http.MethodGet, "/v1/attestation?nonce="+long, nil))
 	if rec.Code != http.StatusBadRequest {
