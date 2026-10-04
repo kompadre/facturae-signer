@@ -18,11 +18,8 @@ import (
 
 // URIs de algoritmos XMLDSig.
 const (
-	algSHA1   = "http://www.w3.org/2000/09/xmldsig#sha1"
-	algSHA256 = "http://www.w3.org/2001/04/xmlenc#sha256"
-	// Variante xmldsig-more: es la que FACe exige para ds:DigestMethod
-	// (insight de soporte); xmlenc#sha256 se sigue reconociendo para
-	// documentos ya firmados y para SigPolicyHash.
+	algSHA1       = "http://www.w3.org/2000/09/xmldsig#sha1"
+	algSHA256     = "http://www.w3.org/2001/04/xmlenc#sha256"
 	algSHA256More = "http://www.w3.org/2001/04/xmldsig-more#sha256"
 	algSHA384     = "http://www.w3.org/2001/04/xmlenc#sha384"
 	algSHA512     = "http://www.w3.org/2001/04/xmlenc#sha512"

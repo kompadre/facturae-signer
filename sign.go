@@ -12,15 +12,14 @@ import (
 const (
 	policyURL         = "http://www.facturae.es/politica_de_firma_formato_facturae/politica_de_firma_formato_facturae_v3_1.pdf"
 	policyDescription = "Política de Firma FacturaE v3.1"
-	// Facturae 3.2.2 / FACe exigen SHA-256 en TODA la estructura XAdES,
-	// incluido SigPolicyHash: con xmldsig#sha1 la factura se rechaza con
-	// "El tipo de firma de la factura no está admitido".
-	policyAlgorithm = "http://www.w3.org/2001/04/xmlenc#sha256"
-	// DigestValue indicado por el soporte para SigPolicyHash SHA-256.
-	// (No coincide con sha256(<PDF actual>)=11I1LxBk… ni con el de la copia
-	// pre-2025 a/vDoueJ…; si volviera a fallar "La política de firma no es
-	// correcta", probar esos dos valores.)
-	policyHash      = "Oh9JlB1T3yM6Sbh2S+O06J/8fR+93W+p0d3jNq/0N38="
+	// Perfil literal de la aplicación oficial de Facturae (inv-working.xsig,
+	// validado por el validador AOC): SHA-1 en toda la estructura, incluido
+	// SigPolicyHash, con el digest de la política v3.1 pre-2025.
+	// (La hipótesis previa "FACe exige sha256" venía de rechazos que en
+	// realidad eran del número de versión 3.2.2; el .xsig oficial con sha1
+	// pasa todas las validaciones.)
+	policyAlgorithm = "http://www.w3.org/2000/09/xmldsig#sha1"
+	policyHash      = "Ohixl6upD6av8N7pEvDABhEL6hM="
 	signerRole      = "emisor"
 	dataDescription = "Factura electrónica"
 )

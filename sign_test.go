@@ -350,8 +350,8 @@ func assertSignatureStructure(t *testing.T, out, original string) {
 	if got := kids[0].SelectAttrValue("Algorithm", ""); got != "http://www.w3.org/TR/2001/REC-xml-c14n-20010315" {
 		t.Errorf("CanonicalizationMethod = %q", got)
 	}
-	if got := kids[1].SelectAttrValue("Algorithm", ""); got != algRSASHA256 {
-		t.Errorf("SignatureMethod = %q, se esperaba %q", got, algRSASHA256)
+	if got := kids[1].SelectAttrValue("Algorithm", ""); got != algRSASHA1 {
+		t.Errorf("SignatureMethod = %q, se esperaba %q", got, algRSASHA1)
 	}
 
 	refs := si.SelectElements("Reference")
@@ -380,23 +380,21 @@ func assertSignatureStructure(t *testing.T, out, original string) {
 	if refs[2].SelectAttrValue("URI", "") != "" {
 		t.Errorf("refs[2].URI = %q, se esperaba vacío (documento)", refs[2].SelectAttrValue("URI", ""))
 	}
-	if refs[2].SelectAttrValue("Type", "") != "http://www.w3.org/2000/09/xmldsig#Object" {
-		t.Errorf("refs[2].Type = %q", refs[2].SelectAttrValue("Type", ""))
+	if refs[2].SelectAttrValue("Type", "") != "" {
+		t.Errorf("refs[2].Type = %q, se esperaba sin Type (forma oficial)", refs[2].SelectAttrValue("Type", ""))
 	}
 	transforms := refs[2].SelectElement("Transforms")
 	if transforms == nil {
 		t.Fatal("la referencia al documento debe llevar transformaciones")
 	}
 	tr := transforms.SelectElements("Transform")
-	if len(tr) != 2 ||
-		tr[0].SelectAttrValue("Algorithm", "") != "http://www.w3.org/2000/09/xmldsig#enveloped-signature" ||
-		tr[1].SelectAttrValue("Algorithm", "") != "http://www.w3.org/TR/2001/REC-xml-c14n-20010315" {
-		t.Errorf("la referencia al documento debe listar enveloped + C14N (%d transforms)", len(tr))
+	if len(tr) != 1 || tr[0].SelectAttrValue("Algorithm", "") != algEnveloped {
+		t.Errorf("la referencia al documento debe listar solo enveloped (forma oficial), hay %d transforms", len(tr))
 	}
 	for i, ref := range refs {
 		dm := ref.SelectElement("DigestMethod")
-		if dm == nil || dm.SelectAttrValue("Algorithm", "") != algSHA256X {
-			t.Errorf("refs[%d].DigestMethod != sha256 (xmldsig-more)", i)
+		if dm == nil || dm.SelectAttrValue("Algorithm", "") != algSHA1 {
+			t.Errorf("refs[%d].DigestMethod != sha1 (perfil oficial)", i)
 		}
 		if ref.SelectElement("DigestValue") == nil {
 			t.Errorf("refs[%d] sin DigestValue", i)
@@ -472,12 +470,8 @@ func assertSignatureStructure(t *testing.T, out, original string) {
 	if mime := dof.SelectElement("MimeType"); mime == nil || mime.Text() != "text/xml" {
 		t.Error("DataObjectFormat/MimeType debe ser text/xml")
 	}
-	ident := dof.FindElement("ObjectIdentifier/Identifier")
-	if ident == nil {
-		t.Fatal("falta xades:ObjectIdentifier")
-	}
-	if ident.SelectAttrValue("Qualifier", "") != "OIDAsURN" || ident.Text() != "urn:oid:1.2.840.10003.5.109.10" {
-		t.Errorf("ObjectIdentifier = %q (%q)", ident.Text(), ident.SelectAttrValue("Qualifier", ""))
+	if ident := dof.FindElement("ObjectIdentifier/Identifier"); ident != nil {
+		t.Error("DataObjectFormat no debe llevar ObjectIdentifier (forma oficial)")
 	}
 
 	// Ids únicos en todo el documento.
@@ -519,9 +513,9 @@ func assertSignatureStructure(t *testing.T, out, original string) {
 
 func TestFormatIssuerDN(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{"CN=AC FNMT Usuarios,O=FNMT-RCM,C=ES", "CN=AC FNMT Usuarios, O=FNMT-RCM, C=ES"},
-		{"CN=Foo, O=Bar, C=ES", "CN=Foo, O=Bar, C=ES"},               // idempotente
-		{`CN=ACME\, S.L.,O=Foo,C=ES`, `CN=ACME\, S.L., O=Foo, C=ES`}, // coma escapada
+		{"CN=AC FNMT Usuarios,O=FNMT-RCM,C=ES", "CN=AC FNMT Usuarios,O=FNMT-RCM,C=ES"},
+		{"CN=Foo, O=Bar, C=ES", "CN=Foo,O=Bar,C=ES"},               // sin espacio (RFC 2253 / oficial)
+		{`CN=ACME\, S.L.,O=Foo,C=ES`, `CN=ACME\, S.L.,O=Foo,C=ES`}, // coma escapada intacta
 	}
 	for _, c := range cases {
 		if got := formatIssuerDN(c.in); got != c.want {
@@ -604,7 +598,8 @@ func TestSignXMLWithCertificateChain(t *testing.T) {
 	if err := verifySignedXML([]byte(out)); err != nil {
 		t.Fatalf("verifySignedXML con cadena: %v", err)
 	}
-	if n := strings.Count(out, "<ds:X509Certificate>"); n != 1+len(cert.CaChain) {
-		t.Errorf("X509Certificate elements = %d, se esperaban %d (hoja + CAs)", n, 1+len(cert.CaChain))
+	// Forma oficial: solo la hoja en KeyInfo, aunque el bundle traiga cadena.
+	if n := strings.Count(out, "<ds:X509Certificate>"); n != 1 {
+		t.Errorf("X509Certificate elements = %d, se esperaba 1 (solo hoja, forma oficial)", n)
 	}
 }
