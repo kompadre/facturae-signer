@@ -40,11 +40,12 @@ type verifactuAltaRequest struct {
 }
 
 type verifactuConsultaRequest struct {
-	Certificate string `json:"certificate"`
-	NIF         string `json:"nif"`
-	Nombre      string `json:"nombre"`
-	Fecha       string `json:"fecha"` // YYYY-MM-DD
-	Numero      string `json:"numero,omitempty"`
+	Certificate     string                `json:"certificate"`
+	NIF             string                `json:"nif"`
+	Nombre          string                `json:"nombre"`
+	Fecha           string                `json:"fecha"` // YYYY-MM-DD
+	Numero          string                `json:"numero,omitempty"`
+	ClavePaginacion *verifactuIDFacturaBC `json:"clave_paginacion,omitempty"`
 }
 
 type verifactuLineaJSON struct {
@@ -83,6 +84,8 @@ type verifactuConsultaRegistroJSON struct {
 
 type verifactuConsultaResult struct {
 	ResultadoConsulta string                          `json:"resultado_consulta,omitempty"`
+	IndPagina         string                          `json:"ind_pagina"`                 // S = hay más páginas
+	ClavePaginacion   *verifactuIDFacturaBC           `json:"clave_paginacion,omitempty"` // para pedir la siguiente
 	Registros         []verifactuConsultaRegistroJSON `json:"registros"`
 	Endpoint          string                          `json:"endpoint"`
 	RawXML            string                          `json:"raw_xml,omitempty"` // base64, diagnóstico
@@ -337,7 +340,7 @@ func verifactuConsultaHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inner, err := buildVerifactuConsulta(req.NIF, req.Nombre, req.Fecha, req.Numero)
+	inner, err := buildVerifactuConsulta(req.NIF, req.Nombre, req.Fecha, req.Numero, req.ClavePaginacion)
 	if err != nil {
 		writeVerifactuError(w, err)
 		return
@@ -355,10 +358,22 @@ func verifactuConsultaHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ind := resp.IndicadorPaginacion
+	if ind == "" {
+		ind = "N"
+	}
 	result := verifactuConsultaResult{
 		ResultadoConsulta: resp.ResultadoConsulta,
+		IndPagina:         ind,
 		Endpoint:          endpoint,
 		RawXML:            base64.StdEncoding.EncodeToString(raw),
+	}
+	if resp.ClavePaginacion != nil {
+		result.ClavePaginacion = &verifactuIDFacturaBC{
+			EmisorNIF: resp.ClavePaginacion.EmisorNIF,
+			NumSerie:  resp.ClavePaginacion.NumSerie,
+			Fecha:     resp.ClavePaginacion.Fecha,
+		}
 	}
 	for _, reg := range resp.Registros {
 		result.Registros = append(result.Registros, verifactuConsultaRegistroJSON{

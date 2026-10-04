@@ -371,9 +371,19 @@ func buildVerifactuInner(r *verifactuRecord, now time.Time) (string, string, str
 	return envelope, huella, fechaHoraGen, nil
 }
 
+// verifactuIDFacturaBC es la ClavePaginacion (IDFacturaExpedidaBCType):
+// la clave es la identidad de la última factura de la página solicitada;
+// la AEAT devuelve las siguientes. Fecha en YYYY-MM-DD (se emite DD-MM-YYYY).
+type verifactuIDFacturaBC struct {
+	EmisorNIF string `json:"emisor_nif,omitempty"`
+	NumSerie  string `json:"num_serie"`
+	Fecha     string `json:"fecha"` // YYYY-MM-DD
+}
+
 // buildVerifactuConsulta construye ConsultaFactuSistemaFacturacion (ConsultaLR).
-// La fecha (YYYY-MM-DD) determina el PeriodoImputacion; número opcional filtra.
-func buildVerifactuConsulta(nif, nombre, fechaISO, numero string) (string, error) {
+// La fecha (YYYY-MM-DD) determina el PeriodoImputacion; número opcional filtra;
+// clave (opcional) = ClavePaginacion para pedir la página siguiente.
+func buildVerifactuConsulta(nif, nombre, fechaISO, numero string, clave *verifactuIDFacturaBC) (string, error) {
 	if nif == "" || nombre == "" || fechaISO == "" {
 		return "", inputErrf("nif, nombre y fecha son obligatorios para la consulta")
 	}
@@ -391,6 +401,26 @@ func buildVerifactuConsulta(nif, nombre, fechaISO, numero string) (string, error
 		`</PeriodoImputacion>`)
 	if numero != "" {
 		filtro.WriteString(`<NumSerieFactura>` + escapeXMLText(numero) + `</NumSerieFactura>`)
+	}
+	if clave != nil {
+		if clave.NumSerie == "" || clave.Fecha == "" {
+			return "", inputErrf("clave_paginacion: num_serie y fecha son obligatorios")
+		}
+		fechaES, err := veriFecha(clave.Fecha)
+		if err != nil {
+			return "", err
+		}
+		emisor := clave.EmisorNIF
+		if emisor == "" {
+			emisor = nif
+		}
+		// Último elemento de FiltroConsulta (posición exigida por el XSD);
+		// hijos del tipo sf: (elementFormDefault=qualified).
+		filtro.WriteString(`<ClavePaginacion>` +
+			`<sf:IDEmisorFactura>` + escapeXMLText(emisor) + `</sf:IDEmisorFactura>` +
+			`<sf:NumSerieFactura>` + escapeXMLText(clave.NumSerie) + `</sf:NumSerieFactura>` +
+			`<sf:FechaExpedicionFactura>` + fechaES + `</sf:FechaExpedicionFactura>` +
+			`</ClavePaginacion>`)
 	}
 	filtro.WriteString(`</FiltroConsulta>`)
 

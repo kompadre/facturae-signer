@@ -165,9 +165,18 @@ type vfConsultaRegistro struct {
 	} `xml:"EstadoRegistro"`
 }
 
+// vfIDFacturaXML es un IDFactura (uso: ClavePaginacion de la respuesta).
+type vfIDFacturaXML struct {
+	EmisorNIF string `xml:"IDEmisorFactura"`
+	NumSerie  string `xml:"NumSerieFactura"`
+	Fecha     string `xml:"FechaExpedicionFactura"`
+}
+
 type vfConsultaResponse struct {
-	ResultadoConsulta string               `xml:"ResultadoConsulta"`
-	Registros         []vfConsultaRegistro `xml:"RegistroRespuestaConsultaFactuSistemaFacturacion"`
+	ResultadoConsulta   string               `xml:"ResultadoConsulta"`
+	IndicadorPaginacion string               `xml:"IndicadorPaginacion"` // S = hay más páginas
+	ClavePaginacion     *vfIDFacturaXML      `xml:"ClavePaginacion"`     // clave de la página siguiente
+	Registros           []vfConsultaRegistro `xml:"RegistroRespuestaConsultaFactuSistemaFacturacion"`
 }
 
 type soapFaultDetail struct {

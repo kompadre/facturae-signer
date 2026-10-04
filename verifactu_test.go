@@ -258,7 +258,7 @@ func TestBuildVerifactuValidation(t *testing.T) {
 // --- Consulta ---
 
 func TestBuildVerifactuConsulta(t *testing.T) {
-	inner, err := buildVerifactuConsulta("B19995869", "Empresa de Pruebas", "2026-10-01", "2026-0007")
+	inner, err := buildVerifactuConsulta("B19995869", "Empresa de Pruebas", "2026-10-01", "2026-0007", nil)
 	if err != nil {
 		t.Fatalf("consulta: %v", err)
 	}
@@ -274,8 +274,66 @@ func TestBuildVerifactuConsulta(t *testing.T) {
 			t.Errorf("falta %s", want)
 		}
 	}
-	if _, err := buildVerifactuConsulta("", "x", "2026-10-01", ""); err == nil {
+	if _, err := buildVerifactuConsulta("", "x", "2026-10-01", "", nil); err == nil {
 		t.Error("se esperaba error sin NIF")
+	}
+}
+
+func TestBuildVerifactuConsultaConClavePaginacion(t *testing.T) {
+	inner, err := buildVerifactuConsulta("B19995869", "Empresa de Pruebas", "2026-10-01", "2026-0007",
+		&verifactuIDFacturaBC{EmisorNIF: "B19995869", NumSerie: "2026-0006", Fecha: "2026-10-01"})
+	if err != nil {
+		t.Fatalf("consulta: %v", err)
+	}
+	clave := `<ClavePaginacion>` +
+		`<sf:IDEmisorFactura>B19995869</sf:IDEmisorFactura>` +
+		`<sf:NumSerieFactura>2026-0006</sf:NumSerieFactura>` +
+		`<sf:FechaExpedicionFactura>01-10-2026</sf:FechaExpedicionFactura>` +
+		`</ClavePaginacion>`
+	if !strings.Contains(inner, clave) {
+		t.Errorf("falta ClavePaginacion (fecha convertida a DD-MM-YYYY): %s", inner)
+	}
+	// Posición: último hijo de FiltroConsulta (XSD: después de todo, antes del cierre).
+	if i, j := strings.Index(inner, clave), strings.Index(inner, "</FiltroConsulta>"); i < 0 || i > j {
+		t.Errorf("ClavePaginacion debe ir justo antes de </FiltroConsulta> (i=%d j=%d)", i, j)
+	}
+	// Sin clave no debe aparecer.
+	plain, _ := buildVerifactuConsulta("B19995869", "E", "2026-10-01", "", nil)
+	if strings.Contains(plain, "ClavePaginacion") {
+		t.Error("sin clave no debe emitirse ClavePaginacion")
+	}
+	// Validación: clave incompleta / fecha mala.
+	if _, err := buildVerifactuConsulta("B19995869", "E", "2026-10-01", "",
+		&verifactuIDFacturaBC{NumSerie: ""}); err == nil {
+		t.Error("se esperaba error con clave incompleta")
+	}
+	if _, err := buildVerifactuConsulta("B19995869", "E", "2026-10-01", "",
+		&verifactuIDFacturaBC{NumSerie: "X", Fecha: "01-10-2026"}); err == nil {
+		t.Error("se esperaba error con fecha no ISO en la clave")
+	}
+}
+
+func TestParseConsultaResponsePaginacion(t *testing.T) {
+	r, err := parseConsultaResponse([]byte(fixtureConsultaPagina))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if r.IndicadorPaginacion != "S" {
+		t.Errorf("IndicadorPaginacion = %q, se esperaba S", r.IndicadorPaginacion)
+	}
+	if r.ClavePaginacion == nil || r.ClavePaginacion.NumSerie != "2026-0007" || r.ClavePaginacion.Fecha != "01-10-2026" {
+		t.Errorf("ClavePaginacion = %+v", r.ClavePaginacion)
+	}
+	if len(r.Registros) != 1 {
+		t.Errorf("registros = %d", len(r.Registros))
+	}
+	// La respuesta sin paginación (fixture base) no tiene clave.
+	r2, err := parseConsultaResponse([]byte(fixtureConsulta))
+	if err != nil {
+		t.Fatalf("parse base: %v", err)
+	}
+	if r2.ClavePaginacion != nil {
+		t.Error("sin elemento, la clave debe ser nil")
 	}
 }
 
@@ -352,6 +410,26 @@ const fixtureConsulta = `<?xml version="1.0" encoding="UTF-8"?>
     <IDFactura><IDEmisorFactura>B19995869</IDEmisorFactura><NumSerieFactura>2026-0007</NumSerieFactura><FechaExpedicionFactura>01-10-2026</FechaExpedicionFactura></IDFactura>
     <EstadoRegistro><TimestampUltimaModificacion>2026-10-01T12:00:02</TimestampUltimaModificacion><EstadoRegistro>Correcto</EstadoRegistro></EstadoRegistro>
    </RegistroRespuestaConsultaFactuSistemaFacturacion>
+  </RespuestaConsultaFactuSistemaFacturacion>
+ </soapenv:Body>
+</soapenv:Envelope>`
+
+// Respuesta con más páginas: IndicadorPaginacion=S + ClavePaginacion.
+const fixtureConsultaPagina = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+ <soapenv:Body>
+  <RespuestaConsultaFactuSistemaFacturacion xmlns="x">
+   <ResultadoConsulta>Conforme</ResultadoConsulta>
+   <IndicadorPaginacion>S</IndicadorPaginacion>
+   <RegistroRespuestaConsultaFactuSistemaFacturacion>
+    <IDFactura><IDEmisorFactura>B19995869</IDEmisorFactura><NumSerieFactura>2026-0007</NumSerieFactura><FechaExpedicionFactura>01-10-2026</FechaExpedicionFactura></IDFactura>
+    <EstadoRegistro><TimestampUltimaModificacion>2026-10-01T12:00:02</TimestampUltimaModificacion><EstadoRegistro>Correcto</EstadoRegistro></EstadoRegistro>
+   </RegistroRespuestaConsultaFactuSistemaFacturacion>
+   <ClavePaginacion>
+    <IDEmisorFactura>B19995869</IDEmisorFactura>
+    <NumSerieFactura>2026-0007</NumSerieFactura>
+    <FechaExpedicionFactura>01-10-2026</FechaExpedicionFactura>
+   </ClavePaginacion>
   </RespuestaConsultaFactuSistemaFacturacion>
  </soapenv:Body>
 </soapenv:Envelope>`
@@ -630,9 +708,12 @@ func TestVerifactuConsultaHandler(t *testing.T) {
 	pool := x509.NewCertPool()
 	pool.AddCert(ca.cert)
 
+	var gotConsultaBody string
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotConsultaBody = string(b)
 		w.Header().Set("Content-Type", "text/xml; charset=utf-8")
-		fmt.Fprint(w, fixtureConsulta)
+		fmt.Fprint(w, fixtureConsultaPagina)
 	}))
 	srv.TLS = &tls.Config{
 		Certificates: []tls.Certificate{{Certificate: [][]byte{serverCert.Raw}, PrivateKey: serverKey, Leaf: serverCert}},
@@ -670,6 +751,11 @@ func TestVerifactuConsultaHandler(t *testing.T) {
 		Nombre:      "Empresa de Pruebas",
 		Fecha:       "2026-10-01",
 		Numero:      "2026-0007",
+		ClavePaginacion: &verifactuIDFacturaBC{
+			EmisorNIF: "B19995869",
+			NumSerie:  "2026-0006",
+			Fecha:     "2026-10-01",
+		},
 	})
 	resp, err := http.Post(web.URL+"/verifactu/consulta", "application/json", strings.NewReader(string(payload)))
 	if err != nil {
@@ -688,6 +774,18 @@ func TestVerifactuConsultaHandler(t *testing.T) {
 	}
 	if result.Registros[0].Estado != "Correcto" {
 		t.Errorf("registro = %+v", result.Registros[0])
+	}
+	if result.IndPagina != "S" {
+		t.Errorf("ind_pagina = %q, se esperaba S", result.IndPagina)
+	}
+	if result.ClavePaginacion == nil || result.ClavePaginacion.NumSerie != "2026-0007" {
+		t.Errorf("clave_paginacion = %+v", result.ClavePaginacion)
+	}
+	// El SOAP saliente lleva la clave pedida (fecha convertida DD-MM-YYYY).
+	if !strings.Contains(gotConsultaBody, "<ClavePaginacion>") ||
+		!strings.Contains(gotConsultaBody, "<sf:NumSerieFactura>2026-0006</sf:NumSerieFactura>") ||
+		!strings.Contains(gotConsultaBody, "<sf:FechaExpedicionFactura>01-10-2026</sf:FechaExpedicionFactura>") {
+		t.Errorf("el SOAP no lleva ClavePaginacion: %s", gotConsultaBody)
 	}
 }
 
