@@ -505,6 +505,17 @@ func logging(next http.Handler) http.Handler {
 }
 
 func main() {
+	// Un binario, dos formas: sin argumentos sirve; con argumentos es el
+	// CLI local (wpfe-sign …). Ver cli.go.
+	if len(os.Args) > 1 {
+		os.Exit(cliRun(os.Args[1:]))
+	}
+	runServer()
+}
+
+// runServer arranca el signer (TCP/vsock/unix según LISTEN). No devuelve:
+// ante cualquier error de arranque muere con log.Fatal.
+func runServer() {
 	cfg, err := loadSignerConfig()
 	if err != nil {
 		log.Printf("AVISO: firma deshabilitada: %v", err)

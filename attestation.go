@@ -4,6 +4,8 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -63,41 +65,61 @@ func transportKeyHandler(w http.ResponseWriter, r *http.Request) {
 // transport_key / host_public_key son PEM `PUBLIC KEY`: en PHP bastan
 // base64_decode del cuerpo para obtener el DER (SPKI) que pide el payload.
 func transportKeyJSON(w http.ResponseWriter) {
-	if activeConfig.host == nil {
-		writeJSON(w, http.StatusNotImplemented, errorResponse{
-			Error: "sin identidad de host (sólo en WPFE_KEY_MODE=persistent); usa ?format=pem",
-		})
+	doc, err := buildTransportKeyDoc(activeConfig)
+	if err != nil {
+		if errors.Is(err, errNoHostIdentityDoc) {
+			writeJSON(w, http.StatusNotImplemented, errorResponse{
+				Error: "sin identidad de host (sólo en WPFE_KEY_MODE=persistent); usa ?format=pem",
+			})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
 		return
 	}
+	writeJSON(w, http.StatusOK, doc)
+}
 
-	transportSPKI, err := x509.MarshalPKIXPublicKey(&activeConfig.privateKey.PublicKey)
+// errNoHostIdentityDoc marca el caso "modo env/generate sin identidad": no es
+// un fallo del servidor, es que ese modo no publica vínculo.
+var errNoHostIdentityDoc = errors.New("sin identidad de host")
+
+// buildTransportKeyDoc construye el documento de vínculo. Lo comparten el
+// endpoint HTTP y el CLI (`wpfe-sign pubkey --json`), para que el cliente
+// vea exactamente lo mismo venga por socket o por red.
+func buildTransportKeyDoc(cfg *signerConfig) (map[string]any, error) {
+	if cfg == nil || cfg.privateKey == nil {
+		return nil, errors.New("servicio sin configurar: falta la clave de transporte")
+	}
+	if cfg.host == nil {
+		return nil, errNoHostIdentityDoc
+	}
+
+	transportSPKI, err := x509.MarshalPKIXPublicKey(&cfg.privateKey.PublicKey)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "clave pública no disponible"})
-		return
+		return nil, fmt.Errorf("clave pública no disponible: %w", err)
 	}
 	transportPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: transportSPKI})
-	hostSPKIPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: activeConfig.host.SPKI})
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: activeConfig.host.Cert.Raw})
+	hostSPKIPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: cfg.host.SPKI})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cfg.host.Cert.Raw})
 
 	issuedAt := time.Now().UTC().Truncate(time.Second)
-	alg, sig, _, err := activeConfig.host.SignBinding(transportSPKI, issuedAt)
+	alg, sig, _, err := cfg.host.SignBinding(transportSPKI, issuedAt)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "no se pudo firmar el vínculo: " + err.Error()})
-		return
+		return nil, fmt.Errorf("no se pudo firmar el vínculo: %w", err)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	return map[string]any{
 		"transport_key":    string(transportPEM),
 		"transport_key_id": hostid.Fingerprint(transportSPKI),
 		"host_cert":        string(certPEM),
 		"host_public_key":  string(hostSPKIPEM),
-		"host_fingerprint": activeConfig.host.Fingerprint,
+		"host_fingerprint": cfg.host.Fingerprint,
 		"binding_alg":      alg,
 		"binding":          base64.StdEncoding.EncodeToString(sig),
 		"issued_at":        issuedAt.Format(time.RFC3339),
-		"key_mode":         activeConfig.keyMode,
+		"key_mode":         cfg.keyMode,
 		"version":          version,
-	})
+	}, nil
 }
 
 // attestationHandler devuelve el documento de attestation del NSM con la

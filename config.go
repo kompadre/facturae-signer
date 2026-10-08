@@ -109,29 +109,41 @@ func dataDir() string {
 	return "/var/lib/facturae-signer"
 }
 
+// hostIdentityPaths devuelve (cert, clave) de la identidad del host; con
+// WPFE_HOST_CERT/WPFE_HOST_KEY apunta a un par existente (p. ej. Let's
+// Encrypt), si no, al par generado por init.
+func hostIdentityPaths() (string, string) {
+	dir := dataDir()
+	cert := strings.TrimSpace(os.Getenv("WPFE_HOST_CERT"))
+	key := strings.TrimSpace(os.Getenv("WPFE_HOST_KEY"))
+	if cert == "" {
+		cert = filepath.Join(dir, "host.cert")
+	}
+	if key == "" {
+		key = filepath.Join(dir, "host.key")
+	}
+	return cert, key
+}
+
+// keystorePath es la ruta del keystore (WPFE_KEYSTORE la cambia).
+func keystorePath() string {
+	if p := strings.TrimSpace(os.Getenv("WPFE_KEYSTORE")); p != "" {
+		return p
+	}
+	return filepath.Join(dataDir(), "keystore.bin")
+}
+
 // loadPersistent carga (o da de alta) el keystore del modo VPS. La identidad
 // de host se crea también en la primera pasada: sin SPKI no hay master.
 func loadPersistent() (*signerConfig, error) {
-	dir := dataDir()
-
-	hostCert := strings.TrimSpace(os.Getenv("WPFE_HOST_CERT"))
-	hostKey := strings.TrimSpace(os.Getenv("WPFE_HOST_KEY"))
-	if hostCert == "" {
-		hostCert = filepath.Join(dir, "host.cert")
-	}
-	if hostKey == "" {
-		hostKey = filepath.Join(dir, "host.key")
-	}
+	hostCert, hostKey := hostIdentityPaths()
 	hostname, _ := os.Hostname()
 	host, err := hostid.LoadOrCreate(hostCert, hostKey, hostname)
 	if err != nil {
 		return nil, fmt.Errorf("identidad de host: %w", err)
 	}
 
-	ksPath := strings.TrimSpace(os.Getenv("WPFE_KEYSTORE"))
-	if ksPath == "" {
-		ksPath = filepath.Join(dir, "keystore.bin")
-	}
+	ksPath := keystorePath()
 	key, rewrapped, err := keystore.LoadOrCreate(ksPath, host.SPKI)
 	if err != nil {
 		return nil, err

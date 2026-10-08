@@ -31,9 +31,10 @@ build:
 	@mkdir -p dist
 	CGO_ENABLED=0 $(GO) build -trimpath -buildvcs=false \
 		-ldflags "-s -w -X main.version=$(VERSION)" -o dist/signer .
+	@cp dist/signer dist/wpfe-sign
 	$(GO) build -trimpath -o dist/facturae-signer-parent ./parent
 	$(GO) build -trimpath -o dist/verify ./cmd/verify
-	@cd dist && sha256sum signer facturae-signer-parent verify > SHA256SUMS
+	@cd dist && sha256sum signer wpfe-sign facturae-signer-parent verify > SHA256SUMS
 	@echo "build OK (version=$(VERSION))"; cat dist/SHA256SUMS
 
 image:

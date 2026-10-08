@@ -180,10 +180,10 @@ func MachineSecret() ([]byte, string, error) {
 //
 // Un salt opcional que aparece/desaparece cambia el master y deja el
 // keystore inutilizable: por eso el modo estricto es opt-in por variable.
-func externalSalt() ([]byte, string, error) {
+func externalSalt() ([]byte, string, bool, error) {
 	v, set := os.LookupEnv("WPFE_MASTER_SALT_FILE")
 	if set && strings.TrimSpace(v) == "" {
-		return nil, "desactivado (WPFE_MASTER_SALT_FILE vacío)", nil
+		return nil, "", false, nil // desactivado explícitamente
 	}
 	path := DefaultSaltFile
 	strict := false
@@ -194,18 +194,27 @@ func externalSalt() ([]byte, string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) && !strict {
-			return nil, path + " (ausente, opcional)", nil
+			return nil, path, false, nil // opcional y ausente
 		}
-		return nil, path, fmt.Errorf("keystore: no se pudo leer el salt externo %s: %w", path, err)
+		return nil, path, false, fmt.Errorf("keystore: no se pudo leer el salt externo %s: %w", path, err)
 	}
 	data = bytes.TrimSpace(data)
 	if len(data) == 0 {
 		if strict {
-			return nil, path, fmt.Errorf("keystore: %s definido pero vacío", path)
+			return nil, path, false, fmt.Errorf("keystore: %s definido pero vacío", path)
 		}
-		return nil, path + " (vacío)", nil
+		return nil, path, false, nil
 	}
-	return data, path, nil
+	return data, path, true, nil
+}
+
+// SaltState describe el segundo factor para `wpfe-sign doctor` (sin secretos):
+// ruta, si está presente, si es obligatorio y el error de lectura si lo hay.
+func SaltState() (path string, present bool, required bool, err error) {
+	v, set := os.LookupEnv("WPFE_MASTER_SALT_FILE")
+	required = set && strings.TrimSpace(v) != ""
+	_, p, ok, readErr := externalSalt()
+	return p, ok, required, readErr
 }
 
 // masterKey deriva la clave maestra con separación de dominio por etiqueta
@@ -290,11 +299,10 @@ func LoadOrCreate(path string, hostSPKI []byte) (*rsa.PrivateKey, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	external, saltSource, err := externalSalt()
+	external, _, _, err := externalSalt()
 	if err != nil {
 		return nil, false, err
 	}
-	_ = saltSource
 
 	data, err := os.ReadFile(path)
 	if err != nil {
