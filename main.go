@@ -468,11 +468,15 @@ func requireMethod(method string, next http.HandlerFunc) http.HandlerFunc {
 
 func newMux() *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/sign", requireMethod(http.MethodPost, signHandler))
-	mux.HandleFunc("/pdf", requireMethod(http.MethodPost, pdfHandler))
-	mux.HandleFunc("/verifactu/alta", requireMethod(http.MethodPost, verifactuAltaHandler))
-	mux.HandleFunc("/verifactu/consulta", requireMethod(http.MethodPost, verifactuConsultaHandler))
+	// Las cuatro rutas de negocio reciben TODO su cuerpo dentro del
+	// envoltorio WPFE1 (ver envelope.go); /health y /v1/* quedan fuera:
+	// son sonda y material público respectivamente.
+	mux.HandleFunc("/sign", requireMethod(http.MethodPost, envelopeMiddleware(signHandler)))
+	mux.HandleFunc("/pdf", requireMethod(http.MethodPost, envelopeMiddleware(pdfHandler)))
+	mux.HandleFunc("/verifactu/alta", requireMethod(http.MethodPost, envelopeMiddleware(verifactuAltaHandler)))
+	mux.HandleFunc("/verifactu/consulta", requireMethod(http.MethodPost, envelopeMiddleware(verifactuConsultaHandler)))
 	mux.HandleFunc("/health", requireMethod(http.MethodGet, healthHandler))
+	mux.HandleFunc("/v1/info", requireMethod(http.MethodGet, infoHandler))
 	mux.HandleFunc("/v1/transport-key", requireMethod(http.MethodGet, transportKeyHandler))
 	mux.HandleFunc("/v1/attestation", requireMethod(http.MethodGet, attestationHandler))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

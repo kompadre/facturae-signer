@@ -8,12 +8,16 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"facturae-signer/internal/hostid"
+	"facturae-signer/internal/keystore"
 )
 
 // signerConfig es la configuración de firma del signer.
 //
-// Dos modos de clave de transporte (WPFE_KEY_MODE):
+// Tres modos de clave de transporte (WPFE_KEY_MODE):
 //
 //   - "" / "env": WPFE_PRIVATE_KEY (PEM en línea o ruta) — modo histórico,
 //     el operador custodia la clave (docker de desarrollo / staging).
@@ -23,12 +27,21 @@ import (
 //     (ni el dueño de la infraestructura) puede descifrar los blobs WPFE1.
 //     Al no persistir, un reinicio rota la clave: volver a subir el
 //     certificado en WordPress (convención v1).
+//   - "persistent": modo VPS. La clave se genera una vez y se guarda en el
+//     keystore cifrada con un master derivado de la identidad de la máquina
+//     (ver internal/keystore). Además hay identidad x509 de host
+//     (internal/hostid): con ella se firma el vínculo que ata la pública de
+//     transporte a ESTE host, que es lo que el plugin fija en Ajustes.
 //
 // No hay ninguna contraseña de PKCS#12: el plugin abre el .p12 al subirlo y
 // envía clave+certificado ya extraídos (bundle PEM, cifrado con WPFE1).
 type signerConfig struct {
 	privateKey *rsa.PrivateKey
-	generated  bool // clave generada en memoria (modo "generate")
+	generated  bool   // clave generada en memoria (modo "generate")
+	keyMode    string // "env" | "generate" | "persistent"
+	host       *hostid.Identity
+	rewrapped  bool   // se re-envolvió el keystore al arrancar (rotación de cert)
+	keystore   string // ruta del keystore (para doctor/logs)
 }
 
 // transportKeyGenerated refleja el modo de la clave activa; lo usa el aviso
@@ -73,14 +86,65 @@ func loadSignerConfig() (*signerConfig, error) {
 		}
 		key = generatedKey
 		generated = true
+	case "persistent":
+		// Modo VPS: keystore cifrado + identidad de host (vínculo).
+		return loadPersistent()
 	default:
-		return nil, fmt.Errorf("WPFE_KEY_MODE desconocido (%q): ¿env o generate?", mode)
+		return nil, fmt.Errorf("WPFE_KEY_MODE desconocido (%q): ¿env, generate o persistent?", mode)
 	}
 
 	transportKeyGenerated = generated
 	return &signerConfig{
 		privateKey: key,
 		generated:  generated,
+		keyMode:    mode,
+	}, nil
+}
+
+// dataDir es el directorio de datos del signer (keystore + identidad de host).
+func dataDir() string {
+	if d := strings.TrimSpace(os.Getenv("WPFE_DATA_DIR")); d != "" {
+		return d
+	}
+	return "/var/lib/facturae-signer"
+}
+
+// loadPersistent carga (o da de alta) el keystore del modo VPS. La identidad
+// de host se crea también en la primera pasada: sin SPKI no hay master.
+func loadPersistent() (*signerConfig, error) {
+	dir := dataDir()
+
+	hostCert := strings.TrimSpace(os.Getenv("WPFE_HOST_CERT"))
+	hostKey := strings.TrimSpace(os.Getenv("WPFE_HOST_KEY"))
+	if hostCert == "" {
+		hostCert = filepath.Join(dir, "host.cert")
+	}
+	if hostKey == "" {
+		hostKey = filepath.Join(dir, "host.key")
+	}
+	hostname, _ := os.Hostname()
+	host, err := hostid.LoadOrCreate(hostCert, hostKey, hostname)
+	if err != nil {
+		return nil, fmt.Errorf("identidad de host: %w", err)
+	}
+
+	ksPath := strings.TrimSpace(os.Getenv("WPFE_KEYSTORE"))
+	if ksPath == "" {
+		ksPath = filepath.Join(dir, "keystore.bin")
+	}
+	key, rewrapped, err := keystore.LoadOrCreate(ksPath, host.SPKI)
+	if err != nil {
+		return nil, err
+	}
+
+	transportKeyGenerated = false
+	return &signerConfig{
+		privateKey: key,
+		generated:  false,
+		keyMode:    "persistent",
+		host:       host,
+		rewrapped:  rewrapped,
+		keystore:   ksPath,
 	}, nil
 }
 

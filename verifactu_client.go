@@ -67,6 +67,11 @@ func newVerifactuClient(bundle *keyBundle, extraRoots []*x509.Certificate, timeo
 			RootCAs:      rootCAs,
 			MinVersion:   tls.VersionTLS12,
 		},
+		// El certificado del cliente vive en este Transport: sin
+		// keep-alives no queda ninguna conexión en pie (y por tanto ningún
+		// pool) que otro request con otro certificado pudiera reutilizar.
+		// Cuesta un handshake por llamada AEAT, que es de bajo volumen.
+		DisableKeepAlives: true,
 	}
 	if outboundRelay != nil {
 		// Modo enclave: el enclave no tiene red propia; el parent relaya

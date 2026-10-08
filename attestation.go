@@ -1,10 +1,15 @@
 package main
 
 import (
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"io"
 	"net/http"
 	"strings"
+	"time"
+
+	"facturae-signer/internal/hostid"
 )
 
 // version se inyecta en build con -ldflags "-X main.version=…"; forma parte
@@ -16,11 +21,26 @@ var attestationProv attestationProvider
 
 // transportKeyHandler sirve la SPKI PEM de la clave de transporte: lo que hay
 // que pegar en Ajustes → Clave Pública. Pública por definición: sin auth.
+//
+//	GET /v1/transport-key           → PEM (compatibilidad, lo de siempre)
+//	GET /v1/transport-key?format=json → documento de vínculo (ver abajo)
+//
+// El documento JSON añade la prueba de que ESA pública pertenece a ESTE host:
+// la identidad del host firma el vínculo y el cliente lo verifica contra la
+// huella que tiene fijada. Un MitM que cambie /etc/hosts sirve su propia
+// identidad ⇒ huella distinta ⇒ el cliente rechaza (no hace falta TLS para
+// eso, aunque exista y se use).
 func transportKeyHandler(w http.ResponseWriter, r *http.Request) {
 	if activeConfig == nil {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "servicio sin configurar: falta la clave de transporte"})
 		return
 	}
+
+	if strings.EqualFold(r.URL.Query().Get("format"), "json") {
+		transportKeyJSON(w)
+		return
+	}
+
 	pemStr, err := transportPublicKeyPEM(activeConfig.privateKey)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "clave pública no disponible"})
@@ -29,6 +49,55 @@ func transportKeyHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/x-pem-file; charset=us-ascii")
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.WriteString(w, pemStr)
+}
+
+// transportKeyJSON devuelve el documento de vínculo.
+//
+// Receta de verificación del cliente (el payload se RECALCULA, no se confía
+// en el que viaja en claro):
+//
+//	payload = "wpfe-binding/v1" | RawStd(der(transport_key)) | RawStd(der(host_public_key)) | issued_at
+//	verificar binding con la clave de host_public_key (openssl_verify SHA-256)
+//	y comparar la huella de host_public_key con la fijada en Ajustes.
+//
+// transport_key / host_public_key son PEM `PUBLIC KEY`: en PHP bastan
+// base64_decode del cuerpo para obtener el DER (SPKI) que pide el payload.
+func transportKeyJSON(w http.ResponseWriter) {
+	if activeConfig.host == nil {
+		writeJSON(w, http.StatusNotImplemented, errorResponse{
+			Error: "sin identidad de host (sólo en WPFE_KEY_MODE=persistent); usa ?format=pem",
+		})
+		return
+	}
+
+	transportSPKI, err := x509.MarshalPKIXPublicKey(&activeConfig.privateKey.PublicKey)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "clave pública no disponible"})
+		return
+	}
+	transportPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: transportSPKI})
+	hostSPKIPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: activeConfig.host.SPKI})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: activeConfig.host.Cert.Raw})
+
+	issuedAt := time.Now().UTC().Truncate(time.Second)
+	alg, sig, _, err := activeConfig.host.SignBinding(transportSPKI, issuedAt)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "no se pudo firmar el vínculo: " + err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"transport_key":    string(transportPEM),
+		"transport_key_id": hostid.Fingerprint(transportSPKI),
+		"host_cert":        string(certPEM),
+		"host_public_key":  string(hostSPKIPEM),
+		"host_fingerprint": activeConfig.host.Fingerprint,
+		"binding_alg":      alg,
+		"binding":          base64.StdEncoding.EncodeToString(sig),
+		"issued_at":        issuedAt.Format(time.RFC3339),
+		"key_mode":         activeConfig.keyMode,
+		"version":          version,
+	})
 }
 
 // attestationHandler devuelve el documento de attestation del NSM con la
