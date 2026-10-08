@@ -1,0 +1,27 @@
+# facturae-signer — socket local (mismo host que WordPress)
+#
+# Instalar:  /etc/systemd/system/facturae-signer.socket
+# Activar:   systemctl enable --now facturae-signer.socket
+#
+# La unidad .socket es la que fija los permisos (y la única que debe hacerlo:
+# con activación, el servicio no toca el fichero del socket).
+
+[Unit]
+Description=facturae-signer (unix socket para el plugin de WordPress)
+Before=network.target
+
+[Socket]
+ListenStream=/run/facturae-signer/signer.sock
+# 0660 + grupo www-data: el plugin (www-data) habla por el socket, ningún
+# otro usuario del sistema. El proceso servicio ni siquiera necesita permiso
+# de escritura: systemd le entrega el fd ya abierto.
+SocketMode=0660
+SocketUser=root
+SocketGroup=www-data
+
+# Alternativa si prefieres que el socket pertenezca al servicio:
+#   SocketUser=facturae-signer
+#   SocketGroup=www-data
+
+[Install]
+WantedBy=sockets.target

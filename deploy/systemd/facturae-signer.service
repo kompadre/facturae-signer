@@ -1,0 +1,64 @@
+# facturae-signer — servicio (modo persistente: keystore + identidad host)
+#
+# Instalar:  /etc/systemd/system/facturae-signer.service
+# Preparado: install -d -o facturae-signer -g facturae-signer -m 0700 /var/lib/facturae-signer
+#            sudo -u facturae-signer /usr/local/bin/wpfe-sign init
+# Activar:   systemctl enable --now facturae-signer.socket facturae-signer.service
+#
+# Con el socket (unidad .socket) NO hace falta LISTEN: si systemd ya ha
+# entregado el fd, el servicio detecta la activación y escucha ahí. Sin
+# activación (VPS separado con nginx), descomenta el LISTEN de TCP.
+
+[Unit]
+Description=facturae-signer (firma Facturae/VeriFactu)
+Documentation=file:///usr/local/share/doc/facturae-signer/README-vps.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=facturae-signer
+Group=facturae-signer
+ExecStart=/usr/local/bin/wpfe-sign
+
+Environment=WPFE_KEY_MODE=persistent
+Environment=WPFE_DATA_DIR=/var/lib/facturae-signer
+# Segundo factor opcional (ver README-vps.md «Salto idéntico de clon»):
+# con User=facturae-signer el fichero necesita SER LEGIBLE POR EL SERVICIO,
+# es decir 0440 root:facturae-signer (un 0400 root:root sólo sirve si el
+# servicio corre como root).
+#Environment=WPFE_MASTER_SALT_FILE=/etc/facturae-signer.salt
+#
+# VPS separado detrás de nginx (en lugar de socket):
+#Environment=LISTEN=:8081
+#Environment=WPFE_REQUIRE_ENVELOPE=1
+#
+# Identidad de host con el par TLS del sitio (cruzado opcional):
+#Environment=WPFE_HOST_CERT=/etc/letsencrypt/live/ejemplo.com/fullchain.pem
+#Environment=WPFE_HOST_KEY=/etc/letsencrypt/live/ejemplo.com/privkey.pem
+
+# --- endurecimiento ---------------------------------------------------------
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+LimitCORE=0
+# Sin core dumps: una volcada no puede contener la clave de transporte.
+ReadWritePaths=/var/lib/facturae-signer
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

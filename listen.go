@@ -33,6 +33,12 @@ type listenSpec struct {
 func parseListen(s string) (listenSpec, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
+		// Con activación por systemd y sin LISTEN explícito, el destino es
+		// el socket: si no, el proceso serviría en TCP y el socket que creó
+		// systemd quedaría huérfano (conexiones rechazadas, sin error claro).
+		if systemdActivationActive() {
+			return listenSpec{network: "unix", addr: DefaultSocketPath}, nil
+		}
 		return listenSpec{network: "tcp", addr: ":8080"}, nil
 	}
 	if strings.HasPrefix(s, "tcp:") {
@@ -154,19 +160,25 @@ func socketID(name string) (int, bool) {
 	return id, true
 }
 
+// systemdActivationActive reports si systemd nos ha pasado ya el socket.
+func systemdActivationActive() bool {
+	if strings.TrimSpace(os.Getenv("LISTEN_FDS")) == "" {
+		return false
+	}
+	fds, err := strconv.Atoi(os.Getenv("LISTEN_FDS"))
+	if err != nil || fds < 1 {
+		return false
+	}
+	pid, err := strconv.Atoi(os.Getenv("LISTEN_PID"))
+	return err == nil && pid == os.Getpid()
+}
+
 // systemdActivatedListener devuelve el listener que entregó systemd
 // (LISTEN_FDS + LISTEN_PID) o nil si no hay activación. En ese caso el
 // socket ya lleva los permisos declarados en la unidad y NO debe tocarse.
 func systemdActivatedListener() (net.Listener, error) {
-	if strings.TrimSpace(os.Getenv("LISTEN_FDS")) == "" {
+	if !systemdActivationActive() {
 		return nil, nil
-	}
-	fds, err := strconv.Atoi(os.Getenv("LISTEN_FDS"))
-	if err != nil || fds < 1 {
-		return nil, nil
-	}
-	if pid, err := strconv.Atoi(os.Getenv("LISTEN_PID")); err != nil || pid != os.Getpid() {
-		return nil, nil // la activación no es para este proceso
 	}
 	file := os.NewFile(uintptr(3), "systemd-socket") // SD_LISTEN_FDS_START = 3
 	ln, err := net.FileListener(file)

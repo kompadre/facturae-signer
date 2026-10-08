@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -45,6 +46,34 @@ func TestParseListen(t *testing.T) {
 		if spec.network != c.network || spec.addr != c.addr {
 			t.Errorf("parseListen(%q) = %+v, se esperaba %s/%s", c.in, spec, c.network, c.addr)
 		}
+	}
+}
+
+// Con activación de systemd (y sin LISTEN) el destino por defecto es el
+// socket: si no, el socket de la unidad quedaría huérfano.
+func TestParseListenDefaultsToSocketUnderSystemdActivation(t *testing.T) {
+	t.Setenv("LISTEN", "")
+	t.Setenv("LISTEN_FDS", "1")
+	// Nuestro pid: la activación "es para nosotros" (sólo se resuelve la
+	// dirección aquí; no se sirve nada, el fd 3 no es un listener en tests).
+	t.Setenv("LISTEN_PID", strconv.Itoa(os.Getpid()))
+
+	spec, err := parseListen("")
+	if err != nil {
+		t.Fatalf("parseListen: %v", err)
+	}
+	if spec.network != "unix" || spec.addr != DefaultSocketPath {
+		t.Fatalf("spec = %+v, want unix/%s", spec, DefaultSocketPath)
+	}
+
+	// Sin activación se conserva el comportamiento histórico (TCP).
+	t.Setenv("LISTEN_FDS", "")
+	spec, err = parseListen("")
+	if err != nil {
+		t.Fatalf("parseListen: %v", err)
+	}
+	if spec.network != "tcp" || spec.addr != ":8080" {
+		t.Fatalf("spec = %+v, want tcp/:8080", spec)
 	}
 }
 
