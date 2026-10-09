@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -194,14 +195,14 @@ func TestTransportKeyJSONBindingDocument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("binding b64: %v", err)
 	}
-	if err := hostid.VerifyBindingPEM([]byte(doc.HostPublicKey), payload, sig); err != nil {
+	if err := verifyBindingWithPublicKey(t, doc.HostPublicKey, payload, sig); err != nil {
 		t.Fatalf("verificar vínculo con la receta del cliente: %v", err)
 	}
 
 	// Otra clave de transporte (es decir, un MitM re-sellando con su clave)
 	// no verifica.
 	forged := hostid.BindingPayload(pemBody(t, doc.HostCert), hostSPKI, issuedAt)
-	if err := hostid.VerifyBindingPEM([]byte(doc.HostPublicKey), forged, sig); err == nil {
+	if err := verifyBindingWithPublicKey(t, doc.HostPublicKey, forged, sig); err == nil {
 		t.Fatal("un payload con otra pública no debe verificar")
 	}
 }
@@ -226,4 +227,19 @@ func pemBody(t *testing.T, pemStr string) []byte {
 		t.Fatalf("no es PEM: %.40q", pemStr)
 	}
 	return block.Bytes
+}
+
+// verifyBindingWithPublicKey emula la receta del cliente: verifica con el
+// PEM PUBLIC KEY de host_public_key (openssl_verify), no con el certificado.
+func verifyBindingWithPublicKey(t *testing.T, pubPEM string, payload, sig []byte) error {
+	t.Helper()
+	block, _ := pem.Decode([]byte(pubPEM))
+	if block == nil {
+		t.Fatalf("host_public_key no es PEM: %.40q", pubPEM)
+	}
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		t.Fatalf("host_public_key ilegible: %v", err)
+	}
+	return hostid.VerifyBinding(pub, payload, sig)
 }

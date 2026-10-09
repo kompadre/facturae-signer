@@ -82,7 +82,7 @@ func TestLoadConfigIgnoresLegacyPasswordEnv(t *testing.T) {
 	if cfg.privateKey == nil {
 		t.Fatal("privateKey = nil")
 	}
-	if !reflect.DeepEqual(cfg, &signerConfig{privateKey: cfg.privateKey}) {
+	if !reflect.DeepEqual(cfg, &signerConfig{privateKey: cfg.privateKey, keyMode: "env"}) {
 		t.Errorf("config inesperada: %+v", cfg)
 	}
 }

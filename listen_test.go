@@ -219,9 +219,9 @@ func TestServeUnixHonoursExplicitMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("serveUnix: %v", err)
 	}
-	_ = ln.Close()
-
+	// El listener unix desvincula el socket al cerrarse: stat ANTES de Close.
 	info, err := os.Stat(sock)
+	_ = ln.Close()
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}

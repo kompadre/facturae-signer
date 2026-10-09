@@ -208,9 +208,16 @@ func TestExternalSaltIsSecondFactor(t *testing.T) {
 		t.Fatalf("carga con el mismo salt: %v", err)
 	}
 
-	// Salt distinto: no abre.
+	// Salt distinto: no abre. Con el fichero en 0400 el write directo da
+	// EACCES: se abre, se reescribe y se vuelve a dejar de sólo lectura.
+	if err := os.Chmod(saltPath, 0o600); err != nil {
+		t.Fatalf("chmod salt: %v", err)
+	}
 	if err := os.WriteFile(saltPath, []byte("pepper-dos"), 0o400); err != nil {
 		t.Fatalf("reescribir salt: %v", err)
+	}
+	if err := os.Chmod(saltPath, 0o400); err != nil {
+		t.Fatalf("chmod salt 0400: %v", err)
 	}
 	if _, _, err := LoadOrCreate(path, []byte("spki")); !errors.Is(err, ErrLocked) {
 		t.Fatalf("salt cambiado: err = %v, want ErrLocked", err)
