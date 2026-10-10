@@ -11,6 +11,11 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY *.go ./
+# Paquetes internos que importa el paquete raíz (keystore, hostid): sin este
+# COPY el build falla con "package …/internal/… is not in std" (el paquete
+# interno existe desde el downscale VPS; añadir aquí todo dir del módulo que
+# el binario raíz importe).
+COPY internal/ ./internal/
 
 # VERSION entra en el binario (-X main.version) y viaja en el user_data del
 # attestation doc: las mediciones son por release (publicar measurements.json
