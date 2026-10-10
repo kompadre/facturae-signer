@@ -15,3 +15,6 @@ cover.out
 /dist/
 /measurements.json
 /verify
+
+# Scratch temporal del agente (AGENTS.md regla 6): se limpia al aceptar/commitear
+/.tmp/
